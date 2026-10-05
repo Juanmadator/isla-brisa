@@ -1,0 +1,79 @@
+; Engine configuration file.
+; Isla Brisa - aventura de exploración en mundo abierto con cel-shading.
+
+config_version=5
+
+[application]
+
+config/name="Isla Brisa"
+config/description="Explora Isla Brisa, escala, planea y vuelve a encender los Faros del Viento."
+config/version="1.0.0"
+run/main_scene="res://scenes/Main.tscn"
+config/features=PackedStringArray("4.7", "Forward Plus")
+config/icon="res://icon.svg"
+boot_splash/bg_color=Color(0.53, 0.78, 0.95, 1)
+
+[autoload]
+
+SaveGame="*res://scripts/autoload/save_game.gd"
+Audio="*res://scripts/autoload/audio.gd"
+Controls="*res://scripts/autoload/controls.gd"
+
+[display]
+
+window/size/viewport_width=1280
+window/size/viewport_height=720
+window/size/window_width_override=1600
+window/size/window_height_override=900
+window/stretch/mode="canvas_items"
+window/stretch/aspect="expand"
+
+[gui]
+
+theme/custom_font="res://assets/fonts/Fredoka.ttf"
+
+[physics]
+
+3d/physics_engine="Jolt Physics"
+common/physics_ticks_per_second=60
+common/physics_interpolation=true
+
+[rendering]
+
+anti_aliasing/quality/msaa_3d=2
+anti_aliasing/quality/screen_space_aa=2
+anti_aliasing/quality/use_debanding=true
+lights_and_shadows/directional_shadow/size=4096
+lights_and_shadows/directional_shadow/soft_shadow_filter_quality=2
+environment/defaults/default_clear_color=Color(0.53, 0.78, 0.95, 1)
+
+[shader_globals]
+
+player_pos={
+"type": "vec3",
+"value": Vector3(0, 0, 0)
+}
+sun_dir={
+"type": "vec3",
+"value": Vector3(0.3, 0.8, 0.2)
+}
+day_tint={
+"type": "color",
+"value": Color(1, 1, 1, 1)
+}
+night_amount={
+"type": "float",
+"value": 0.0
+}
+wind_dir={
+"type": "vec2",
+"value": Vector2(1, 0.3)
+}
+cloud_shadow={
+"type": "float",
+"value": 0.0
+}
+cloud_offset={
+"type": "vec2",
+"value": Vector2(0, 0)
+}

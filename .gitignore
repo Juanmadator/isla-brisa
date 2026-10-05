@@ -1,0 +1,7 @@
+.godot/
+captures/
+dist/
+override.cfg
+*.tmp
+*.avi
+__pycache__/

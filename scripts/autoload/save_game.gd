@@ -1,0 +1,224 @@
+extends Node
+## Partida guardada: posición, hora, banderas de historia, objetos recogidos, inventario,
+## cosméticos, lugares descubiertos y ajustes. Se guarda en user://isla_brisa_save.json.
+
+const PATH := "user://isla_brisa_save.json"
+const VERSION := 1
+
+var data := {}
+var persist := true
+
+signal changed
+
+
+func _ready() -> void:
+	load_game()
+
+
+func default_data() -> Dictionary:
+	return {
+		"version": VERSION,
+		"started": false,
+		"pos": [0.0, 0.0, 0.0],
+		"yaw": 0.0,
+		"hour": 8.0,
+		"flags": {},
+		"collected": {},
+		"discovered": {},
+		"journal": {},
+		"shells": 0,
+		"feathers": 0,
+		"fish": {},
+		"owned": {"scarf_red": true, "glider_classic": true, "hat_none": true, "outfit_travel": true, "pet_none": true},
+		"equipped": {"scarf": "scarf_red", "hat": "hat_none", "glider": "glider_classic", "outfit": "outfit_travel", "pet": "pet_none"},
+		"tracked": "",
+		"play_time": 0.0,
+		"settings": {
+			"music": 0.75,
+			"sfx": 0.85,
+			"ambience": 0.7,
+			"sensitivity": 1.0,
+			"invert_y": false,
+			"fullscreen": false,
+			"shadows": true,
+			"high_quality": true,
+		},
+	}
+
+
+func load_game() -> void:
+	data = default_data()
+	if persist and FileAccess.file_exists(PATH):
+		var f := FileAccess.open(PATH, FileAccess.READ)
+		if f:
+			var parsed = JSON.parse_string(f.get_as_text())
+			if parsed is Dictionary:
+				_merge(data, parsed)
+	# Partidas de versiones anteriores: añade lo que viene de serie y las ranuras nuevas.
+	var def := default_data()
+	for id in def["owned"]:
+		data["owned"][id] = true
+	for slot in def["equipped"]:
+		if not data["equipped"].has(slot):
+			data["equipped"][slot] = def["equipped"][slot]
+
+
+func save_game() -> void:
+	if not persist:
+		return
+	var f := FileAccess.open(PATH, FileAccess.WRITE)
+	if f:
+		f.store_string(JSON.stringify(data, "  "))
+
+
+func _merge(base: Dictionary, incoming: Dictionary) -> void:
+	for k in incoming:
+		if base.has(k) and base[k] is Dictionary and incoming[k] is Dictionary:
+			if k in ["flags", "collected", "discovered", "owned", "equipped", "journal", "fish"]:
+				base[k] = incoming[k]
+			else:
+				_merge(base[k], incoming[k])
+		else:
+			base[k] = incoming[k]
+
+
+## Borra el progreso pero conserva los ajustes.
+func new_game() -> void:
+	var settings: Dictionary = data["settings"]
+	data = default_data()
+	data["settings"] = settings
+	data["started"] = true
+	save_game()
+	changed.emit()
+
+
+func has_save() -> bool:
+	return data.get("started", false)
+
+
+# --- Banderas y objetos -------------------------------------------------------------
+
+func flag(k: String) -> bool:
+	return data["flags"].get(k, false)
+
+
+func set_flag(k: String, v := true) -> void:
+	data["flags"][k] = v
+	changed.emit()
+
+
+func counter(k: String) -> int:
+	return int(data["flags"].get(k, 0))
+
+
+func add_counter(k: String, n := 1) -> int:
+	data["flags"][k] = counter(k) + n
+	changed.emit()
+	return counter(k)
+
+
+func is_collected(id: String) -> bool:
+	return data["collected"].has(id)
+
+
+func collect(id: String) -> void:
+	data["collected"][id] = true
+	changed.emit()
+
+
+func count_collected(prefix: String) -> int:
+	var n := 0
+	for k in data["collected"]:
+		if String(k).begins_with(prefix):
+			n += 1
+	return n
+
+
+func in_journal(id: String) -> bool:
+	return data["journal"].has(id)
+
+
+func add_journal(id: String) -> void:
+	data["journal"][id] = true
+	changed.emit()
+
+
+func is_discovered(id: String) -> bool:
+	return data["discovered"].has(id)
+
+
+func discover(id: String) -> void:
+	data["discovered"][id] = true
+	changed.emit()
+
+
+# --- Moneda, plumas y cosméticos ------------------------------------------------------
+
+func shells() -> int:
+	return int(data["shells"])
+
+
+func add_shells(n: int) -> void:
+	data["shells"] = shells() + n
+	changed.emit()
+
+
+func spend(n: int) -> bool:
+	if shells() < n:
+		return false
+	data["shells"] = shells() - n
+	changed.emit()
+	return true
+
+
+func feathers() -> int:
+	return int(data["feathers"])
+
+
+func add_feather() -> void:
+	data["feathers"] = feathers() + 1
+	changed.emit()
+
+
+func owns(id: String) -> bool:
+	return data["owned"].has(id)
+
+
+func give(id: String) -> void:
+	data["owned"][id] = true
+	changed.emit()
+
+
+func equipped(slot: String) -> String:
+	return data["equipped"].get(slot, "")
+
+
+func equip(slot: String, id: String) -> void:
+	data["equipped"][slot] = id
+	changed.emit()
+
+
+# --- Ajustes ------------------------------------------------------------------------------
+
+func setting(k: String):
+	return data["settings"].get(k, default_data()["settings"].get(k))
+
+
+func set_setting(k: String, v) -> void:
+	data["settings"][k] = v
+	apply_settings()
+	save_game()
+
+
+func apply_settings() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
+	var fs: bool = setting("fullscreen")
+	var want := DisplayServer.WINDOW_MODE_FULLSCREEN if fs else DisplayServer.WINDOW_MODE_WINDOWED
+	if DisplayServer.window_get_mode() != want and not (not fs and DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MAXIMIZED):
+		DisplayServer.window_set_mode(want)
+
+
+func _notification(what: int) -> void:
+	if what == NOTIFICATION_WM_CLOSE_REQUEST:
+		save_game()

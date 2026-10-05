@@ -1,0 +1,773 @@
+class_name Props
+extends RefCounted
+## Modelos procedurales del mundo: casas, molino, faros, muelle, ruinas, cofres,
+## coleccionables... Todos con cel-shading y contorno. Los que se pueden pisar o escalar
+## llevan colisión (StaticBody3D).
+
+const WOOD := Color(0.62, 0.43, 0.28)
+const WOOD_DARK := Color(0.45, 0.3, 0.2)
+const STONE := Color(0.78, 0.76, 0.7)
+const STONE_DARK := Color(0.6, 0.58, 0.55)
+const WHITE_WALL := Color(0.97, 0.94, 0.86)
+const WINDOW := Color(0.2, 0.28, 0.4)
+const GOLD := Color(1.0, 0.82, 0.3)
+
+
+static func _m(c: Color, outline := 0.03) -> ShaderMaterial:
+	return MeshKit.mat(c, outline)
+
+
+static func _p(parent: Node3D, mesh: Mesh, c: Color, pos := Vector3.ZERO, rot := Vector3.ZERO, scl := Vector3.ONE, outline := 0.03) -> MeshInstance3D:
+	return MeshKit.part(parent, mesh, _m(c, outline), pos, rot, scl)
+
+
+static func _box(parent: Node3D, size: Vector3, c: Color, pos := Vector3.ZERO, rot := Vector3.ZERO, radius := 0.05, outline := 0.03) -> MeshInstance3D:
+	return _p(parent, MeshKit.rounded_box(size, radius, 2), c, pos, rot, Vector3.ONE, outline)
+
+
+## Cristal de ventana: azul oscuro de día y luz cálida de noche (lo enciende el shader).
+static func glass() -> ShaderMaterial:
+	return MeshKit.night_glow_mat(WINDOW, 1.6)
+
+
+static func body(parent: Node3D) -> StaticBody3D:
+	var b := StaticBody3D.new()
+	parent.add_child(b)
+	return b
+
+
+static func box_col(b: StaticBody3D, size: Vector3, pos: Vector3, rot := Vector3.ZERO) -> void:
+	var cs := CollisionShape3D.new()
+	var s := BoxShape3D.new()
+	s.size = size
+	cs.shape = s
+	cs.position = pos
+	cs.rotation_degrees = rot
+	b.add_child(cs)
+
+
+static func cyl_col(b: StaticBody3D, radius: float, height: float, pos: Vector3) -> void:
+	var cs := CollisionShape3D.new()
+	var s := CylinderShape3D.new()
+	s.radius = radius
+	s.height = height
+	cs.shape = s
+	cs.position = pos
+	b.add_child(cs)
+
+
+## Prisma triangular (tejado a dos aguas) de ancho `w`, alto `h` y fondo `d`, centrado.
+static func roof_mesh(w: float, h: float, d: float) -> ArrayMesh:
+	var poly := PackedVector2Array([Vector2(-w * 0.5, 0), Vector2(w * 0.5, 0), Vector2(0, -h)])
+	var m := MeshKit.extrude(poly, d)
+	return m
+
+
+static func _roof(parent: Node3D, w: float, h: float, d: float, c: Color, pos: Vector3, yaw := 0.0) -> MeshInstance3D:
+	# extrude() levanta en Y un polígono XZ: lo giramos para que el triángulo quede de pie.
+	# Girar +90° en X lleva el vértice (z = -h) hacia arriba y la extrusión (Y) hacia +Z.
+	var mi := _p(parent, roof_mesh(w, h, d), c, pos, Vector3(90, yaw, 0), Vector3.ONE, 0.045)
+	mi.position = pos + Basis.from_euler(Vector3(0, deg_to_rad(yaw), 0)) * Vector3(0, 0, -d * 0.5)
+	return mi
+
+
+# --- Casas ----------------------------------------------------------------------
+
+static func house(seed_value: int, roof_color: Color, wall := WHITE_WALL, size := Vector3(6.0, 3.6, 5.0)) -> Node3D:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_value
+	var root := Node3D.new()
+	var w := size.x
+	var h := size.y
+	var d := size.z
+	var top := h + 0.3
+	# Zócalo de piedra y paredes
+	_box(root, Vector3(w + 0.3, 0.6, d + 0.3), STONE_DARK, Vector3(0, 0.3, 0), Vector3.ZERO, 0.08, 0.04)
+	_box(root, Vector3(w, h, d), wall, Vector3(0, h * 0.5 + 0.3, 0), Vector3.ZERO, 0.06, 0.045)
+	# Entramado de madera: pilares en las esquinas y viga corrida arriba.
+	for sx: int in [-1, 1]:
+		for sz: int in [-1, 1]:
+			_box(root, Vector3(0.28, h, 0.28), WOOD_DARK, Vector3(sx * w * 0.5, h * 0.5 + 0.3, sz * d * 0.5), Vector3.ZERO, 0.04, 0.025)
+	for sz: int in [-1, 1]:
+		_box(root, Vector3(w + 0.1, 0.24, 0.2), WOOD_DARK, Vector3(0, top - 0.1, sz * d * 0.5), Vector3.ZERO, 0.04, 0.025)
+	for sx: int in [-1, 1]:
+		_box(root, Vector3(0.2, 0.24, d + 0.1), WOOD_DARK, Vector3(sx * w * 0.5, top - 0.1, 0), Vector3.ZERO, 0.04, 0.025)
+	# Tejado
+	var roof_h := w * 0.42
+	_gable_roof(root, w, d, top, roof_h, roof_color, wall)
+	# Puerta (fachada sur, +Z) con marco, tejadillo y escalón
+	var door_x := -w * 0.18
+	_box(root, Vector3(1.5, 2.3, 0.1), WOOD_DARK, Vector3(door_x, 1.4, d * 0.5 + 0.02), Vector3.ZERO, 0.04, 0.025)
+	_box(root, Vector3(1.2, 2.1, 0.12), WOOD, Vector3(door_x, 1.35, d * 0.5 + 0.06), Vector3.ZERO, 0.05, 0.025)
+	for k in 2:
+		_box(root, Vector3(1.0, 0.06, 0.04), WOOD_DARK, Vector3(door_x, 0.85 + k * 1.0, d * 0.5 + 0.13), Vector3.ZERO, 0.01, 0.0)
+	_p(root, MeshKit.sphere(0.06, 6), GOLD, Vector3(door_x + 0.4, 1.35, d * 0.5 + 0.15), Vector3.ZERO, Vector3.ONE, 0.0)
+	_box(root, Vector3(1.9, 0.1, 0.8), roof_color, Vector3(door_x, 2.75, d * 0.5 + 0.4), Vector3(18, 0, 0), 0.03, 0.025)
+	for sx: int in [-1, 1]:
+		_box(root, Vector3(0.08, 0.08, 0.6), WOOD_DARK, Vector3(door_x + sx * 0.75, 2.58, d * 0.5 + 0.3), Vector3(-35, 0, 0), 0.02, 0.015)
+	_box(root, Vector3(1.7, 0.2, 0.7), STONE, Vector3(door_x, 0.1, d * 0.5 + 0.5), Vector3.ZERO, 0.05, 0.03)
+	# Ventanas con contraventanas (la de la fachada, con jardinera)
+	_window(root, Vector3(w * 0.22, h * 0.55 + 0.3, d * 0.5 + 0.03), 0.0, roof_color, true, r.randi())
+	_window(root, Vector3(w * 0.5 + 0.03, h * 0.55 + 0.3, 0), 90.0, roof_color)
+	_window(root, Vector3(-w * 0.5 - 0.03, h * 0.55 + 0.3, 0), -90.0, roof_color)
+	# Ojo de buey en el hastial
+	var oy := top + roof_h * 0.38
+	MeshKit.part(root, MeshKit.cylinder(0.36, 0.36, 0.1, 14), glass(), Vector3(0, oy, d * 0.5 + 0.02), Vector3(90, 0, 0))
+	_p(root, MeshKit.torus(0.34, 0.46), WOOD_DARK, Vector3(0, oy, d * 0.5 + 0.06), Vector3(90, 0, 0), Vector3.ONE, 0.02)
+	_box(root, Vector3(0.1, 0.32, 0.02), WINDOW.lightened(0.4), Vector3(-0.08, oy + 0.04, d * 0.5 + 0.08), Vector3(0, 0, -35), 0.01, 0.0)
+	# Chimenea
+	if r.randf() < 0.7:
+		var cx := w * 0.25
+		var cy := top + roof_h * (1.0 - cx / ((w + 1.1) * 0.5))
+		_box(root, Vector3(0.7, 1.7, 0.7), STONE, Vector3(cx, cy + 0.35, -d * 0.2), Vector3.ZERO, 0.05, 0.03)
+		_box(root, Vector3(0.86, 0.18, 0.86), STONE_DARK, Vector3(cx, cy + 1.2, -d * 0.2), Vector3.ZERO, 0.04, 0.025)
+		root.add_child(smoke(Vector3(cx, cy + 1.4, -d * 0.2)))
+	# Macetas
+	for i in r.randi_range(1, 3):
+		var px := r.randf_range(-w * 0.45, w * 0.45)
+		if absf(px - door_x) < 1.2:
+			continue
+		flower_pot(root, Vector3(px, 0.6, d * 0.5 + 0.45), r.randi())
+	var b := body(root)
+	box_col(b, Vector3(w + 0.2, h + 0.6, d + 0.2), Vector3(0, (h + 0.6) * 0.5, 0))
+	var roof_shape := ConvexPolygonShape3D.new()
+	var hw := (w + 1.1) * 0.5
+	var hd := (d + 0.9) * 0.5
+	roof_shape.points = PackedVector3Array([
+		Vector3(-hw, 0, -hd), Vector3(hw, 0, -hd), Vector3(0, roof_h, -hd),
+		Vector3(-hw, 0, hd), Vector3(hw, 0, hd), Vector3(0, roof_h, hd)])
+	var rcs := CollisionShape3D.new()
+	rcs.shape = roof_shape
+	rcs.position = Vector3(0, top, 0)
+	b.add_child(rcs)
+	return root
+
+
+## Tejado a dos aguas: dos faldones con grosor, filas de tejas, cumbrera y los hastiales
+## (del color de la pared) rellenando el desván. La cara exterior de los faldones sigue
+## la línea del alero (±(w + 1.1) / 2, 0) a la cumbrera (0, roof_h), como la colisión.
+static func _gable_roof(root: Node3D, w: float, d: float, top: float, roof_h: float, c: Color, wall: Color) -> void:
+	var half := (w + 1.1) * 0.5
+	var depth := d + 0.9
+	var thick := 0.22
+	var a := atan2(roof_h, half)
+	var slope_len := sqrt(half * half + roof_h * roof_h)
+	var tile := c.darkened(0.14)
+	for sx: float in [-1.0, 1.0]:
+		var n := Vector3(sx * sin(a), cos(a), 0)
+		var dir := Vector3(-sx * cos(a), sin(a), 0)
+		var eave := Vector3(sx * half, top, 0)
+		var rot := Vector3(0, 0, -sx * rad_to_deg(a))
+		_box(root, Vector3(slope_len + 0.12, thick, depth), c, eave + dir * slope_len * 0.5 - n * thick * 0.5, rot, 0.05, 0.045)
+		# Filas de tejas: listones algo más oscuros que sobresalen del faldón.
+		for k in 4:
+			var t := 0.1 + k * 0.22
+			_box(root, Vector3(0.14, 0.07, depth + 0.02), tile, eave + dir * slope_len * t + n * 0.02, rot, 0.02, 0.0)
+	_p(root, MeshKit.cylinder(0.17, 0.17, depth + 0.12, 10), c.darkened(0.28), Vector3(0, top + roof_h, 0), Vector3(90, 0, 0), Vector3.ONE, 0.025)
+	var under := thick / cos(a) + 0.02
+	var ye := maxf(roof_h * (1.0 - w / (half * 2.0)) - under, 0.02)
+	var gable := PackedVector2Array([Vector2(-w * 0.5, 0), Vector2(w * 0.5, 0), Vector2(w * 0.5, ye), Vector2(0, roof_h - under), Vector2(-w * 0.5, ye)])
+	_prism(root, gable, d, wall, Vector3(0, top, 0), 0.045)
+
+
+## Prisma de un polígono vertical (x, y) extruido en Z y centrado en `pos`.
+static func _prism(parent: Node3D, poly: PackedVector2Array, depth: float, c: Color, pos: Vector3, outline := 0.03) -> MeshInstance3D:
+	# extrude() levanta en Y un polígono XZ: con +90° en X, z = -y queda hacia arriba
+	# y la extrusión pasa a +Z.
+	var flipped := PackedVector2Array()
+	for q in poly:
+		flipped.append(Vector2(q.x, -q.y))
+	return _p(parent, MeshKit.extrude(flipped, depth), c, pos + Vector3(0, 0, -depth * 0.5), Vector3(90, 0, 0), Vector3.ONE, outline)
+
+
+static func _window(root: Node3D, pos: Vector3, yaw: float, shutter: Color, planter := false, seed_value := 0) -> void:
+	var holder := Node3D.new()
+	holder.position = pos
+	holder.rotation_degrees.y = yaw
+	root.add_child(holder)
+	var frame := WHITE_WALL.lightened(0.3)
+	MeshKit.part(holder, MeshKit.rounded_box(Vector3(0.9, 0.9, 0.08), 0.03, 2), glass(), Vector3.ZERO)
+	# Reflejo del cristal
+	_box(holder, Vector3(0.1, 0.5, 0.02), WINDOW.lightened(0.35), Vector3(-0.16, 0.12, 0.05), Vector3(0, 0, -35), 0.01, 0.0)
+	# Marco y cruz
+	_box(holder, Vector3(1.04, 0.1, 0.12), WOOD_DARK, Vector3(0, 0.5, 0.03), Vector3.ZERO, 0.02, 0.02)
+	for sx: int in [-1, 1]:
+		_box(holder, Vector3(0.08, 0.92, 0.12), WOOD_DARK, Vector3(sx * 0.48, 0, 0.03), Vector3.ZERO, 0.02, 0.0)
+	_box(holder, Vector3(0.06, 0.86, 0.06), frame, Vector3(0, 0, 0.05), Vector3.ZERO, 0.02, 0.0)
+	_box(holder, Vector3(0.86, 0.06, 0.06), frame, Vector3(0, 0.02, 0.05), Vector3.ZERO, 0.02, 0.0)
+	_box(holder, Vector3(1.12, 0.12, 0.18), WOOD, Vector3(0, -0.5, 0.05), Vector3.ZERO, 0.03, 0.02)
+	for s: int in [-1, 1]:
+		_box(holder, Vector3(0.42, 0.95, 0.06), shutter.lightened(0.15), Vector3(s * 0.74, 0, 0.04), Vector3.ZERO, 0.02, 0.02)
+		for k in 3:
+			_box(holder, Vector3(0.34, 0.035, 0.02), shutter.darkened(0.05), Vector3(s * 0.74, -0.28 + k * 0.28, 0.08), Vector3.ZERO, 0.01, 0.0)
+	if planter:
+		var cols := [Color(1, 0.45, 0.45), Color(1, 0.85, 0.3), Color(0.85, 0.55, 1.0), Color(1, 1, 1)]
+		_box(holder, Vector3(0.98, 0.24, 0.28), shutter.darkened(0.15), Vector3(0, -0.68, 0.17), Vector3.ZERO, 0.03, 0.02)
+		_p(holder, MeshKit.blob(0.5, 0.35, 0.25, seed_value % 7, 8), Color(0.35, 0.65, 0.3), Vector3(0, -0.55, 0.17), Vector3.ZERO, Vector3(1.0, 1.0, 0.36), 0.02)
+		for i in 5:
+			_p(holder, MeshKit.sphere(0.065, 6), cols[(seed_value + i) % cols.size()], Vector3(-0.36 + i * 0.18, -0.46 + (i % 2) * 0.05, 0.2 + (i % 2) * 0.05), Vector3.ZERO, Vector3.ONE, 0.0)
+
+
+static func smoke(pos: Vector3) -> GPUParticles3D:
+	var p := GPUParticles3D.new()
+	p.position = pos
+	p.amount = 10
+	p.lifetime = 5.0
+	p.local_coords = false
+	p.visibility_aabb = AABB(Vector3(-4, -1, -4), Vector3(8, 12, 8))
+	var pm := ParticleProcessMaterial.new()
+	pm.direction = Vector3.UP
+	pm.spread = 12.0
+	pm.initial_velocity_min = 0.6
+	pm.initial_velocity_max = 0.9
+	pm.gravity = Vector3(0.25, 0.1, 0.1)
+	pm.scale_min = 0.5
+	pm.scale_max = 0.8
+	var c := Curve.new()
+	c.add_point(Vector2(0, 0.35))
+	c.add_point(Vector2(1, 1.6))
+	var ct := CurveTexture.new()
+	ct.curve = c
+	pm.scale_curve = ct
+	var g := Gradient.new()
+	g.set_color(0, Color(1, 1, 1, 0.0))
+	g.add_point(0.15, Color(1, 1, 1, 0.55))
+	g.set_color(g.get_point_count() - 1, Color(1, 1, 1, 0.0))
+	var gt := GradientTexture1D.new()
+	gt.gradient = g
+	pm.color_ramp = gt
+	p.process_material = pm
+	var mesh := SphereMesh.new()
+	mesh.radius = 0.35
+	mesh.height = 0.7
+	mesh.radial_segments = 8
+	mesh.rings = 4
+	var m := StandardMaterial3D.new()
+	m.vertex_color_use_as_albedo = true
+	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	m.albedo_color = Color(0.92, 0.92, 0.95)
+	m.diffuse_mode = BaseMaterial3D.DIFFUSE_TOON
+	m.specular_mode = BaseMaterial3D.SPECULAR_DISABLED
+	m.disable_receive_shadows = true
+	mesh.material = m
+	p.draw_pass_1 = mesh
+	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return p
+
+
+static func flower_pot(root: Node3D, pos: Vector3, seed_value: int) -> void:
+	var cols := [Color(1, 0.45, 0.45), Color(1, 0.85, 0.3), Color(0.85, 0.55, 1.0), Color(1, 1, 1)]
+	_p(root, MeshKit.cylinder(0.22, 0.16, 0.3, 10), Color(0.8, 0.45, 0.3), pos + Vector3(0, 0.15, 0), Vector3.ZERO, Vector3.ONE, 0.02)
+	_p(root, MeshKit.blob(0.22, 0.7, 0.2, seed_value % 7, 8), Color(0.35, 0.65, 0.3), pos + Vector3(0, 0.38, 0), Vector3.ZERO, Vector3.ONE, 0.02)
+	for i in 3:
+		var a := TAU * i / 3.0 + seed_value
+		_p(root, MeshKit.sphere(0.07, 6), cols[(seed_value + i) % cols.size()], pos + Vector3(cos(a) * 0.12, 0.5, sin(a) * 0.12), Vector3.ZERO, Vector3.ONE, 0.0)
+
+
+# --- Molino ---------------------------------------------------------------------
+
+static func windmill() -> Dictionary:
+	var root := Node3D.new()
+	var prof := PackedVector2Array([Vector2(2.6, 0), Vector2(2.4, 1.0), Vector2(1.9, 7.5), Vector2(0.0, 7.5)])
+	_p(root, MeshKit.lathe(prof, 14), WHITE_WALL, Vector3.ZERO, Vector3.ZERO, Vector3.ONE, 0.05)
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(2.3, 0), Vector2(2.2, 0.4), Vector2(0.0, 2.6)]), 14), Color(0.85, 0.35, 0.3), Vector3(0, 7.4, 0), Vector3.ZERO, Vector3.ONE, 0.05)
+	_box(root, Vector3(1.2, 2.0, 0.2), WOOD, Vector3(0, 1.0, 2.45), Vector3(0, 0, 0), 0.05, 0.03)
+	MeshKit.part(root, MeshKit.rounded_box(Vector3(0.8, 0.8, 0.2), 0.03, 2), glass(), Vector3(0, 4.5, 2.13), Vector3(-6, 0, 0))
+	var hub := Node3D.new()
+	hub.position = Vector3(0, 7.2, 2.4)
+	root.add_child(hub)
+	_p(hub, MeshKit.sphere(0.35, 8), WOOD_DARK, Vector3.ZERO, Vector3.ZERO, Vector3.ONE, 0.03)
+	for i in 4:
+		var arm := Node3D.new()
+		arm.rotation.z = TAU * i / 4.0
+		hub.add_child(arm)
+		_box(arm, Vector3(0.18, 5.2, 0.12), WOOD_DARK, Vector3(0, 2.6, 0), Vector3.ZERO, 0.03, 0.02)
+		# Vela de lona sobre un bastidor de listones.
+		_box(arm, Vector3(1.3, 4.0, 0.04), Color(0.98, 0.95, 0.88), Vector3(0.72, 3.0, 0.07), Vector3.ZERO, 0.02, 0.025)
+		_box(arm, Vector3(0.08, 4.1, 0.08), WOOD, Vector3(1.38, 3.0, 0.06), Vector3.ZERO, 0.02, 0.015)
+		for k in 5:
+			_box(arm, Vector3(1.42, 0.06, 0.07), WOOD, Vector3(0.7, 1.1 + k * 0.95, 0.1), Vector3.ZERO, 0.02, 0.0)
+	var b := body(root)
+	cyl_col(b, 2.4, 7.5, Vector3(0, 3.75, 0))
+	cyl_col(b, 2.2, 2.4, Vector3(0, 8.6, 0))
+	return {"root": root, "hub": hub}
+
+
+# --- Faros del Viento -------------------------------------------------------------
+
+## Faro de piedra blanca con franjas del color de la región. Devuelve las piezas que se
+## iluminan al encenderlo.
+static func beacon(stripe: Color, height := 13.0) -> Dictionary:
+	var root := Node3D.new()
+	var base_r := 2.6
+	var top_r := 1.7
+	var prof := PackedVector2Array([Vector2(base_r + 0.6, 0), Vector2(base_r + 0.5, 0.8), Vector2(base_r, 1.0), Vector2(top_r, height), Vector2(0.0, height)])
+	_p(root, MeshKit.lathe(prof, 16), WHITE_WALL, Vector3.ZERO, Vector3.ZERO, Vector3.ONE, 0.06)
+	# Franjas
+	for k: float in [0.33, 0.66]:
+		var y := height * k
+		var rr := lerpf(base_r, top_r, k) + 0.06
+		_p(root, MeshKit.cylinder(rr, rr + 0.06, height * 0.1, 16), stripe, Vector3(0, y, 0), Vector3.ZERO, Vector3.ONE, 0.03)
+	# Puerta
+	_box(root, Vector3(1.3, 2.2, 0.3), WOOD, Vector3(0, 1.1 + 0.8, base_r + 0.05), Vector3.ZERO, 0.06, 0.03)
+	# Balcón
+	_p(root, MeshKit.cylinder(top_r + 0.9, top_r + 0.5, 0.4, 18), STONE, Vector3(0, height + 0.2, 0), Vector3.ZERO, Vector3.ONE, 0.04)
+	for i in 12:
+		var a := TAU * i / 12.0
+		_p(root, MeshKit.cylinder(0.06, 0.06, 0.8, 6), STONE_DARK, Vector3(cos(a) * (top_r + 0.8), height + 0.8, sin(a) * (top_r + 0.8)), Vector3.ZERO, Vector3.ONE, 0.0)
+	_p(root, MeshKit.torus(top_r + 0.72, top_r + 0.88), STONE_DARK, Vector3(0, height + 1.2, 0), Vector3.ZERO, Vector3.ONE, 0.0)
+	# Linterna: columnas, cristal del viento y tejado
+	for i in 4:
+		var a := TAU * i / 4.0 + PI / 4.0
+		_p(root, MeshKit.cylinder(0.1, 0.1, 2.2, 6), stripe.darkened(0.2), Vector3(cos(a) * 1.0, height + 1.5, sin(a) * 1.0), Vector3.ZERO, Vector3.ONE, 0.02)
+	var crystal_off := MeshKit.mat(Color(0.55, 0.6, 0.66), 0.03)
+	var crystal_on := MeshKit.mat(stripe.lightened(0.45), 0.03, 3.5, stripe.lightened(0.3))
+	var crystal := MeshKit.part(root, MeshKit.blob(0.62, 1.5, 0.0, 0, 6), crystal_off, Vector3(0, height + 1.5, 0))
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(1.6, 0), Vector2(1.5, 0.25), Vector2(0.0, 1.9)]), 16), stripe, Vector3(0, height + 2.6, 0), Vector3.ZERO, Vector3.ONE, 0.05)
+	# Veleta
+	var vane := Node3D.new()
+	vane.position = Vector3(0, height + 4.6, 0)
+	root.add_child(vane)
+	_p(vane, MeshKit.cylinder(0.04, 0.04, 0.9, 6), STONE_DARK, Vector3(0, -0.2, 0), Vector3.ZERO, Vector3.ONE, 0.0)
+	_box(vane, Vector3(0.06, 0.4, 1.1), GOLD, Vector3(0, 0.15, 0.25), Vector3.ZERO, 0.02, 0.015)
+	# Pedestal del viento junto a la puerta: aquí se enciende.
+	var altar := Node3D.new()
+	altar.position = Vector3(0, 0, base_r + 3.0)
+	root.add_child(altar)
+	_p(altar, MeshKit.cylinder(0.55, 0.7, 1.0, 8), STONE, Vector3(0, 0.5, 0), Vector3.ZERO, Vector3.ONE, 0.03)
+	var orb_off := MeshKit.mat(Color(0.5, 0.55, 0.62), 0.02)
+	var orb_on := MeshKit.mat(stripe.lightened(0.5), 0.02, 2.5, stripe.lightened(0.3))
+	var orb := MeshKit.part(altar, MeshKit.sphere(0.32, 10), orb_off, Vector3(0, 1.35, 0))
+	var light := OmniLight3D.new()
+	light.position = Vector3(0, height + 1.5, 0)
+	light.light_color = stripe.lightened(0.4)
+	light.light_energy = 0.0
+	light.omni_range = 26.0
+	root.add_child(light)
+	var b := body(root)
+	cyl_col(b, base_r + 0.2, height, Vector3(0, height * 0.5, 0))
+	cyl_col(b, top_r + 0.9, 0.4, Vector3(0, height + 0.2, 0))
+	cyl_col(b, 0.6, 1.0, altar.position + Vector3(0, 0.5, 0))
+	return {"root": root, "crystal": crystal, "crystal_on": crystal_on, "crystal_off": crystal_off,
+		"orb": orb, "orb_on": orb_on, "orb_off": orb_off, "light": light, "vane": vane,
+		"altar": altar, "top": Vector3(0, height + 1.5, 0)}
+
+
+# --- Muelle y barca ---------------------------------------------------------------
+
+static func dock(length: float) -> Node3D:
+	var root := Node3D.new()
+	var b := body(root)
+	var n := int(length / 0.6)
+	for i in n:
+		var c := WOOD if i % 2 == 0 else WOOD.lightened(0.08)
+		_box(root, Vector3(3.2, 0.18, 0.55), c, Vector3(0, 1.2, i * 0.6), Vector3(0, (i % 3 - 1) * 0.8, 0), 0.03, 0.02)
+	for i in range(0, int(length / 3.0) + 1):
+		for s: int in [-1, 1]:
+			_p(root, MeshKit.cylinder(0.16, 0.18, 4.0, 8), WOOD_DARK, Vector3(s * 1.5, -0.8, i * 3.0), Vector3.ZERO, Vector3.ONE, 0.02)
+	box_col(b, Vector3(3.2, 0.3, length), Vector3(0, 1.15, length * 0.5 - 0.3))
+	return root
+
+
+static func boat() -> Node3D:
+	var root := Node3D.new()
+	var hull := PackedVector2Array([Vector2(0.0, -0.6), Vector2(0.9, -0.5), Vector2(1.25, 0.0), Vector2(1.3, 0.35), Vector2(0.0, 0.35)])
+	_p(root, MeshKit.lathe(hull, 16), Color(0.25, 0.5, 0.75), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 2.6), 0.04)
+	_p(root, MeshKit.cylinder(1.15, 1.15, 0.08, 16), WOOD, Vector3(0, 0.25, 0), Vector3.ZERO, Vector3(1.0, 1.0, 2.5), 0.0)
+	_p(root, MeshKit.cylinder(0.07, 0.07, 4.0, 6), WOOD_DARK, Vector3(0, 2.2, -0.5), Vector3.ZERO, Vector3.ONE, 0.02)
+	var sail := MeshKit.extrude(PackedVector2Array([Vector2(0, 0), Vector2(2.2, 0), Vector2(0, 3.2)]), 0.04)
+	_p(root, sail, Color(0.98, 0.94, 0.85), Vector3(0.0, 0.6, -0.4), Vector3(-90, 90, 0), Vector3.ONE, 0.025)
+	return root
+
+
+# --- Plaza ------------------------------------------------------------------------
+
+static func fountain() -> Node3D:
+	var root := Node3D.new()
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(3.0, 0), Vector2(3.0, 0.7), Vector2(2.6, 0.75), Vector2(2.6, 0.3), Vector2(0, 0.3)]), 24), STONE, Vector3.ZERO, Vector3.ZERO, Vector3.ONE, 0.04)
+	var water := MeshKit.part(root, MeshKit.cylinder(2.6, 2.6, 0.05, 24), MeshKit.mat(Color(0.45, 0.82, 0.92), 0.0, 0.25), Vector3(0, 0.58, 0))
+	water.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.5, 0), Vector2(0.35, 1.4), Vector2(1.1, 1.6), Vector2(1.0, 1.8), Vector2(0.25, 1.8), Vector2(0.2, 2.6), Vector2(0.0, 2.8)]), 16), STONE, Vector3(0, 0.3, 0), Vector3.ZERO, Vector3.ONE, 0.035)
+	var b := body(root)
+	cyl_col(b, 3.0, 0.75, Vector3(0, 0.375, 0))
+	cyl_col(b, 0.5, 2.8, Vector3(0, 1.4, 0))
+	return root
+
+
+static func market_stall(awning: Color) -> Node3D:
+	var root := Node3D.new()
+	_box(root, Vector3(3.2, 1.0, 1.4), WOOD, Vector3(0, 0.5, 0), Vector3.ZERO, 0.05, 0.03)
+	for sx: int in [-1, 1]:
+		for sz: int in [-1, 1]:
+			_box(root, Vector3(0.14, 2.6, 0.14), WOOD_DARK, Vector3(sx * 1.5, 1.3, sz * 0.6), Vector3.ZERO, 0.03, 0.02)
+	for i in 6:
+		var c := awning if i % 2 == 0 else Color(0.98, 0.96, 0.9)
+		_box(root, Vector3(0.56, 0.08, 1.9), c, Vector3(-1.4 + i * 0.56, 2.65, 0.15), Vector3(14, 0, 0), 0.02, 0.02)
+	var fruit := [Color(1, 0.45, 0.3), Color(1, 0.8, 0.3), Color(0.6, 0.85, 0.35), Color(0.65, 0.4, 0.8)]
+	for i in 4:
+		_box(root, Vector3(0.6, 0.25, 0.5), WOOD.lightened(0.15), Vector3(-1.1 + i * 0.73, 1.12, 0.1), Vector3.ZERO, 0.03, 0.02)
+		for k in 4:
+			_p(root, MeshKit.sphere(0.1, 6), fruit[i], Vector3(-1.25 + i * 0.73 + (k % 2) * 0.25, 1.32, (k / 2) * 0.2), Vector3.ZERO, Vector3.ONE, 0.0)
+	var b := body(root)
+	box_col(b, Vector3(3.2, 1.0, 1.4), Vector3(0, 0.5, 0))
+	return root
+
+
+static func lamp_post() -> Dictionary:
+	var root := Node3D.new()
+	_p(root, MeshKit.cylinder(0.08, 0.12, 3.0, 8), Color(0.25, 0.27, 0.3), Vector3(0, 1.5, 0), Vector3.ZERO, Vector3.ONE, 0.02)
+	var metal := Color(0.25, 0.27, 0.3)
+	_box(root, Vector3(0.5, 0.08, 0.5), metal, Vector3(0, 2.93, 0), Vector3.ZERO, 0.02, 0.015)
+	_p(root, MeshKit.cone(0.38, 0.3, 4), metal, Vector3(0, 3.62, 0), Vector3(0, 45, 0), Vector3.ONE, 0.02)
+	for sx: int in [-1, 1]:
+		for sz: int in [-1, 1]:
+			_box(root, Vector3(0.05, 0.55, 0.05), metal, Vector3(sx * 0.2, 3.22, sz * 0.2), Vector3.ZERO, 0.01, 0.0)
+	var glow_off := MeshKit.mat(Color(0.9, 0.88, 0.75), 0.0)
+	var glow_on := MeshKit.mat(Color(1.0, 0.85, 0.5), 0.0, 4.0, Color(1.0, 0.75, 0.4))
+	var glass := MeshKit.part(root, MeshKit.rounded_box(Vector3(0.34, 0.48, 0.34), 0.03, 1), glow_off, Vector3(0, 3.22, 0))
+	glass.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var light := OmniLight3D.new()
+	light.position = Vector3(0, 3.1, 0)
+	light.light_color = Color(1.0, 0.75, 0.45)
+	light.light_energy = 1.6
+	light.omni_range = 9.0
+	light.visible = false
+	root.add_child(light)
+	var b := body(root)
+	cyl_col(b, 0.15, 3.4, Vector3(0, 1.7, 0))
+	return {"root": root, "glass": glass, "on": glow_on, "off": glow_off, "light": light}
+
+
+static func bench() -> Node3D:
+	var root := Node3D.new()
+	_box(root, Vector3(1.8, 0.12, 0.5), WOOD, Vector3(0, 0.5, 0), Vector3.ZERO, 0.03, 0.02)
+	_box(root, Vector3(1.8, 0.45, 0.08), WOOD, Vector3(0, 0.85, -0.22), Vector3(-10, 0, 0), 0.03, 0.02)
+	for s: int in [-1, 1]:
+		_box(root, Vector3(0.1, 0.5, 0.45), WOOD_DARK, Vector3(s * 0.75, 0.25, 0), Vector3.ZERO, 0.02, 0.02)
+	return root
+
+
+static func fence(length: float) -> Node3D:
+	var root := Node3D.new()
+	var posts := int(length / 2.0) + 1
+	for i in posts:
+		_box(root, Vector3(0.16, 1.1, 0.16), WOOD, Vector3(i * 2.0 - length * 0.5, 0.55, 0), Vector3.ZERO, 0.03, 0.02)
+	for y: float in [0.45, 0.85]:
+		_box(root, Vector3(length, 0.1, 0.08), WOOD.lightened(0.1), Vector3(0, y, 0), Vector3.ZERO, 0.02, 0.02)
+	return root
+
+
+## Tendedero con prendas de colores (delante de la sastrería).
+static func clothes_line() -> Node3D:
+	var root := Node3D.new()
+	for sx: int in [-1, 1]:
+		_p(root, MeshKit.cylinder(0.07, 0.09, 2.2, 8), WOOD_DARK, Vector3(sx * 2.0, 1.1, 0))
+	_p(root, MeshKit.cylinder(0.012, 0.012, 4.0, 4), Color(0.9, 0.88, 0.82), Vector3(0, 2.05, 0), Vector3(0, 0, 90))
+	var cols := [Color(0.95, 0.45, 0.5), Color(0.45, 0.7, 0.95), Color(1.0, 0.85, 0.35), Color(0.55, 0.8, 0.5), Color(0.75, 0.55, 0.9)]
+	for i in 5:
+		var x := -1.5 + i * 0.75
+		var garment := Node3D.new()
+		garment.position = Vector3(x, 2.02, 0)
+		garment.rotation_degrees = Vector3(0, 0, (i % 2) * 4.0 - 2.0)
+		root.add_child(garment)
+		if i % 2 == 0:
+			# Camiseta: cuerpo y mangas
+			_box(garment, Vector3(0.5, 0.6, 0.04), cols[i], Vector3(0, -0.32, 0), Vector3.ZERO, 0.03, 0.0)
+			for sx: int in [-1, 1]:
+				_box(garment, Vector3(0.2, 0.18, 0.04), cols[i], Vector3(sx * 0.3, -0.1, 0), Vector3(0, 0, sx * -25.0), 0.02, 0.0)
+		else:
+			# Pantalón corto o bufanda
+			_box(garment, Vector3(0.22, 0.7, 0.03), cols[i], Vector3(0, -0.36, 0), Vector3.ZERO, 0.02, 0.0)
+		_box(garment, Vector3(0.05, 0.08, 0.06), WOOD, Vector3(0, 0.0, 0), Vector3.ZERO, 0.01, 0.0)
+	return root
+
+
+static func crate(c := WOOD) -> Node3D:
+	var root := Node3D.new()
+	_box(root, Vector3(0.9, 0.9, 0.9), c, Vector3(0, 0.45, 0), Vector3.ZERO, 0.04, 0.025)
+	_box(root, Vector3(0.95, 0.12, 0.95), c.darkened(0.2), Vector3(0, 0.75, 0), Vector3.ZERO, 0.02, 0.0)
+	var b := body(root)
+	box_col(b, Vector3(0.9, 0.9, 0.9), Vector3(0, 0.45, 0))
+	return root
+
+
+static func barrel() -> Node3D:
+	var root := Node3D.new()
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.38, 0), Vector2(0.46, 0.5), Vector2(0.38, 1.0), Vector2(0.0, 1.0)]), 12), WOOD, Vector3.ZERO, Vector3.ZERO, Vector3.ONE, 0.025)
+	for y: float in [0.2, 0.8]:
+		_p(root, MeshKit.torus(0.4, 0.46), Color(0.35, 0.35, 0.38), Vector3(0, y, 0), Vector3.ZERO, Vector3(1, 0.6, 1), 0.0)
+	var b := body(root)
+	cyl_col(b, 0.45, 1.0, Vector3(0, 0.5, 0))
+	return root
+
+
+## Cometas de colores colgadas de una cuerda (taller de Nerea).
+static func kite(c1: Color, c2: Color, size := 1.0) -> Node3D:
+	var root := Node3D.new()
+	var poly := PackedVector2Array([Vector2(0, -0.9), Vector2(0.55, 0), Vector2(0, 0.5), Vector2(-0.55, 0)])
+	var half_a := PackedVector2Array([Vector2(0, -0.9), Vector2(0.55, 0), Vector2(0, 0.5)])
+	var half_b := PackedVector2Array([Vector2(0, -0.9), Vector2(0, 0.5), Vector2(-0.55, 0)])
+	_p(root, MeshKit.extrude(half_a, 0.03), c1, Vector3.ZERO, Vector3(90, 0, 0), Vector3.ONE * size, 0.02)
+	_p(root, MeshKit.extrude(half_b, 0.03), c2, Vector3.ZERO, Vector3(90, 0, 0), Vector3.ONE * size, 0.02)
+	for i in 3:
+		_p(root, MeshKit.sphere(0.06, 5), [c1, c2, GOLD][i], Vector3(0, -0.6 * size - i * 0.25, 0), Vector3.ZERO, Vector3.ONE, 0.0)
+	return root
+
+
+# --- Naturaleza especial --------------------------------------------------------------
+
+## Roca Aguja: pilar escalable hecho de capas de roca facetadas, cada una algo girada y
+## desplazada, con salientes, matas de hierba en las repisas y la cima cubierta de verde.
+static func needle_rock(height := 11.0) -> Node3D:
+	var root := Node3D.new()
+	var r := RandomNumberGenerator.new()
+	r.seed = 11 + int(height)
+	var tones := [Color(0.74, 0.67, 0.58), Color(0.66, 0.6, 0.54), Color(0.7, 0.63, 0.57), Color(0.62, 0.57, 0.53)]
+	var layers := maxi(4, int(height / 2.2))
+	var y := 0.0
+	for i in layers:
+		var t0 := float(i) / layers
+		var t1 := float(i + 1) / layers
+		var lh := height * (t1 - t0)
+		var r0 := lerpf(3.1, 1.7, t0) + r.randf_range(-0.1, 0.15)
+		var r1 := lerpf(3.1, 1.7, t1) * r.randf_range(0.86, 0.95)
+		# Perfil: base algo metida, panza y un saliente arriba.
+		var prof := PackedVector2Array([Vector2(r0 * 0.94, 0.0), Vector2(r0, lh * 0.15), Vector2(r1 * 1.04, lh * 0.82), Vector2(r1 * 1.08, lh), Vector2(0.0, lh)])
+		var seg := 7 + i % 2
+		var c: Color = tones[(i + int(height)) % tones.size()]
+		var off := Vector3(r.randf_range(-0.15, 0.15), y, r.randf_range(-0.15, 0.15))
+		_p(root, MeshKit.lathe(prof, seg), c, off, Vector3(0, r.randf() * 360.0, 0), Vector3.ONE, 0.045)
+		# Matas de hierba en algunas repisas.
+		if i < layers - 1 and r.randf() < 0.55:
+			var a := r.randf() * TAU
+			var g := Color(0.42, 0.68, 0.3).lerp(Color(0.55, 0.75, 0.32), r.randf())
+			_p(root, MeshKit.blob(0.55, 0.45, 0.25, i + 20, 7), g, off + Vector3(cos(a) * r1 * 0.95, lh + 0.05, sin(a) * r1 * 0.95), Vector3.ZERO, Vector3.ONE, 0.025)
+		y += lh
+	_p(root, MeshKit.blob(1.75, 0.32, 0.2, 2, 9), Color(0.42, 0.68, 0.3), Vector3(0, height + 0.1, 0), Vector3.ZERO, Vector3.ONE, 0.03)
+	for k in 3:
+		var a2 := TAU * k / 3.0 + 0.4
+		_p(root, MeshKit.blob(0.45, 0.6, 0.2, 30 + k, 7), Color(0.38, 0.62, 0.28), Vector3(cos(a2) * 1.2, height + 0.3, sin(a2) * 1.2), Vector3.ZERO, Vector3.ONE, 0.025)
+	var b := body(root)
+	cyl_col(b, 2.4, height, Vector3(0, height * 0.5, 0))
+	return root
+
+
+static func ruin_pillar(height: float, broken := false) -> Node3D:
+	var root := Node3D.new()
+	_box(root, Vector3(1.6, 0.5, 1.6), STONE_DARK, Vector3(0, 0.25, 0), Vector3.ZERO, 0.06, 0.035)
+	_p(root, MeshKit.cylinder(0.55, 0.62, height, 10), STONE, Vector3(0, height * 0.5 + 0.5, 0), Vector3.ZERO, Vector3.ONE, 0.04)
+	if not broken:
+		_box(root, Vector3(1.5, 0.4, 1.5), STONE_DARK, Vector3(0, height + 0.7, 0), Vector3.ZERO, 0.06, 0.035)
+	else:
+		_p(root, MeshKit.blob(0.7, 0.5, 0.3, int(height * 10), 7), STONE, Vector3(0.2, height + 0.5, 0), Vector3(0, 0, 25), Vector3.ONE, 0.035)
+	var b := body(root)
+	cyl_col(b, 0.65, height + 0.9, Vector3(0, (height + 0.9) * 0.5, 0))
+	return root
+
+
+static func ruin_arch(width: float, height: float) -> Node3D:
+	var root := Node3D.new()
+	for s: int in [-1, 1]:
+		_box(root, Vector3(1.2, height, 1.2), STONE, Vector3(s * width * 0.5, height * 0.5, 0), Vector3.ZERO, 0.08, 0.04)
+	_box(root, Vector3(width + 1.6, 1.0, 1.4), STONE_DARK, Vector3(0, height + 0.5, 0), Vector3.ZERO, 0.08, 0.04)
+	var b := body(root)
+	for s: int in [-1, 1]:
+		box_col(b, Vector3(1.2, height, 1.2), Vector3(s * width * 0.5, height * 0.5, 0))
+	box_col(b, Vector3(width + 1.6, 1.0, 1.4), Vector3(0, height + 0.5, 0))
+	return root
+
+
+## Plataforma de piedra (escalones de las ruinas, torre de salida de la carrera).
+static func stone_block(size: Vector3, c := STONE) -> Node3D:
+	var root := Node3D.new()
+	_box(root, size, c, Vector3(0, size.y * 0.5, 0), Vector3.ZERO, 0.1, 0.04)
+	var b := body(root)
+	box_col(b, size, Vector3(0, size.y * 0.5, 0))
+	return root
+
+
+static func cabin(log_color := WOOD) -> Node3D:
+	var root := Node3D.new()
+	for i in 7:
+		var y := 0.25 + i * 0.42
+		for side in 4:
+			var along_x := side % 2 == 0
+			var sgn := -1 if side < 2 else 1
+			var len := 5.4 if along_x else 4.4
+			var c := log_color if (i + side) % 2 == 0 else log_color.darkened(0.08)
+			var pos := Vector3(0, y, sgn * 2.0) if along_x else Vector3(sgn * 2.5, y, 0)
+			var rot := Vector3(0, 0, 90) if along_x else Vector3(90, 0, 0)
+			_p(root, MeshKit.cylinder(0.22, 0.22, len, 8), c, pos, rot, Vector3.ONE, 0.02)
+	_roof(root, 6.4, 2.0, 5.6, Color(0.42, 0.55, 0.32), Vector3(0, 3.05, 0))
+	_box(root, Vector3(1.1, 2.0, 0.15), WOOD_DARK, Vector3(0.8, 1.0, 2.2), Vector3.ZERO, 0.04, 0.02)
+	_window(root, Vector3(-1.2, 1.7, 2.22), 0.0, Color(0.42, 0.55, 0.32))
+	var b := body(root)
+	box_col(b, Vector3(5.2, 3.0, 4.2), Vector3(0, 1.5, 0))
+	return root
+
+
+static func tent(c: Color) -> Node3D:
+	var root := Node3D.new()
+	_roof(root, 3.4, 2.2, 3.6, c, Vector3(0, 0, 0))
+	_p(root, MeshKit.cylinder(0.05, 0.05, 2.4, 6), WOOD_DARK, Vector3(0, 1.2, 1.9), Vector3.ZERO, Vector3.ONE, 0.0)
+	var b := body(root)
+	box_col(b, Vector3(3.0, 1.6, 3.4), Vector3(0, 0.8, 0))
+	return root
+
+
+static func campfire() -> Dictionary:
+	var root := Node3D.new()
+	for i in 7:
+		var a := TAU * i / 7.0
+		_p(root, MeshKit.blob(0.22, 0.6, 0.2, i, 6), STONE_DARK, Vector3(cos(a) * 0.65, 0.08, sin(a) * 0.65), Vector3.ZERO, Vector3.ONE, 0.02)
+	for i in 3:
+		_p(root, MeshKit.cylinder(0.08, 0.08, 1.0, 6), WOOD_DARK, Vector3(0, 0.15, 0), Vector3(80, i * 60, 0), Vector3.ONE, 0.015)
+	var flame := MeshKit.part(root, MeshKit.blob(0.3, 1.8, 0.15, 1, 7), MeshKit.mat(Color(1.0, 0.6, 0.2), 0.0, 3.0, Color(1.0, 0.5, 0.15)), Vector3(0, 0.5, 0))
+	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var inner := MeshKit.part(flame, MeshKit.blob(0.18, 1.6, 0.1, 2, 6), MeshKit.mat(Color(1.0, 0.9, 0.5), 0.0, 3.5, Color(1.0, 0.85, 0.4)), Vector3(0, -0.05, 0))
+	inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var light := OmniLight3D.new()
+	light.position = Vector3(0, 1.0, 0)
+	light.light_color = Color(1.0, 0.65, 0.35)
+	light.light_energy = 1.5
+	light.omni_range = 9.0
+	root.add_child(light)
+	return {"root": root, "flame": flame}
+
+
+# --- Objetos del juego ------------------------------------------------------------------
+
+static func chest() -> Dictionary:
+	var root := Node3D.new()
+	_box(root, Vector3(1.1, 0.6, 0.75), Color(0.6, 0.35, 0.22), Vector3(0, 0.3, 0), Vector3.ZERO, 0.05, 0.03)
+	for x: float in [-0.4, 0.4]:
+		_box(root, Vector3(0.1, 0.62, 0.78), GOLD, Vector3(x, 0.31, 0), Vector3.ZERO, 0.02, 0.0)
+	var lid := Node3D.new()
+	lid.position = Vector3(0, 0.6, -0.37)
+	root.add_child(lid)
+	_box(lid, Vector3(1.12, 0.32, 0.77), Color(0.66, 0.38, 0.24), Vector3(0, 0.14, 0.37), Vector3.ZERO, 0.12, 0.03)
+	_box(lid, Vector3(0.22, 0.26, 0.08), GOLD, Vector3(0, 0.0, 0.77), Vector3.ZERO, 0.03, 0.015)
+	var b := body(root)
+	box_col(b, Vector3(1.1, 0.9, 0.75), Vector3(0, 0.45, 0))
+	return {"root": root, "lid": lid}
+
+
+static func shell() -> Node3D:
+	# Concha de vieira: abanico de estrías con una base pequeña.
+	var root := Node3D.new()
+	var a := MeshKit.mat(Color(1.0, 0.7, 0.62), 0.012)
+	var b := MeshKit.mat(Color(1.0, 0.86, 0.78), 0.012)
+	for i in 7:
+		var ang := lerpf(-55.0, 55.0, i / 6.0)
+		var rib := Node3D.new()
+		rib.rotation_degrees = Vector3(0, ang, 0)
+		root.add_child(rib)
+		MeshKit.part(rib, MeshKit.rounded_box(Vector3(0.085, 0.05, 0.3), 0.03, 2), a if i % 2 == 0 else b, Vector3(0, 0.03 + 0.012 * (1.0 - absf(ang) / 55.0), -0.14), Vector3(-8, 0, 0))
+	MeshKit.part(root, MeshKit.rounded_box(Vector3(0.12, 0.05, 0.07), 0.02, 1), b, Vector3(0, 0.02, 0.03))
+	root.rotation_degrees.x = 15
+	return root
+
+
+static func feather() -> Node3D:
+	var root := Node3D.new()
+	var vane := MeshKit.blob(0.32, 1.0, 0.0, 0, 8)
+	MeshKit.part(root, vane, MeshKit.mat(GOLD, 0.02, 0.9, Color(1.0, 0.75, 0.25)), Vector3(0, 0.5, 0), Vector3(0, 0, 12), Vector3(0.45, 1.5, 0.12))
+	MeshKit.part(root, MeshKit.cylinder(0.025, 0.035, 1.1, 6), MeshKit.mat(Color(1.0, 0.95, 0.75), 0.0, 0.5), Vector3(0.04, 0.45, 0), Vector3(0, 0, 12))
+	return root
+
+
+static func spark() -> Node3D:
+	var root := Node3D.new()
+	var core := MeshKit.part(root, MeshKit.sphere(0.28, 8), MeshKit.mat(Color(1.0, 0.75, 0.3), 0.0, 4.0, Color(1.0, 0.55, 0.15)), Vector3.ZERO)
+	core.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var halo := MeshKit.part(root, MeshKit.sphere(0.5, 8), MeshKit.unshaded(Color(1.0, 0.6, 0.2, 0.25), 1.5), Vector3.ZERO)
+	halo.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	var light := OmniLight3D.new()
+	light.light_color = Color(1.0, 0.65, 0.3)
+	light.light_energy = 1.2
+	light.omni_range = 6.0
+	root.add_child(light)
+	return root
+
+
+static func mushroom(glow: bool) -> Node3D:
+	var root := Node3D.new()
+	_p(root, MeshKit.cylinder(0.08, 0.1, 0.35, 8), Color(0.95, 0.92, 0.85), Vector3(0, 0.17, 0), Vector3.ZERO, Vector3.ONE, 0.015)
+	var cap_col := Color(0.45, 0.85, 1.0) if glow else Color(0.85, 0.3, 0.25)
+	var cap := MeshKit.lathe(PackedVector2Array([Vector2(0.0, 0.0), Vector2(0.28, 0.0), Vector2(0.24, 0.12), Vector2(0.0, 0.22)]), 10)
+	MeshKit.part(root, cap, MeshKit.mat(cap_col, 0.015, 1.6 if glow else 0.0, cap_col), Vector3(0, 0.33, 0))
+	for i in 3:
+		var a := TAU * i / 3.0
+		_p(root, MeshKit.sphere(0.035, 4), Color(1, 1, 1), Vector3(cos(a) * 0.14, 0.45, sin(a) * 0.14), Vector3.ZERO, Vector3.ONE, 0.0)
+	return root
+
+
+## Anillo de viento de la carrera.
+static func wind_ring(radius := 3.0) -> Dictionary:
+	var root := Node3D.new()
+	var on := MeshKit.mat(Color(0.55, 0.95, 1.0), 0.03, 1.4, Color(0.4, 0.9, 1.0))
+	var done := MeshKit.mat(Color(1.0, 0.85, 0.35), 0.03, 1.0, Color(1.0, 0.8, 0.3))
+	var off := MeshKit.unshaded(Color(0.8, 0.9, 1.0, 0.25))
+	var ring := MeshKit.part(root, MeshKit.torus(radius - 0.2, radius + 0.2), off, Vector3.ZERO, Vector3(90, 0, 0))
+	ring.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	return {"root": root, "ring": ring, "on": on, "done": done, "off": off}
+
+
+## Columna de viento ascendente (la paravela sube dentro).
+static func updraft(height: float, radius: float) -> Node3D:
+	var root := Node3D.new()
+	var p := GPUParticles3D.new()
+	p.amount = 90
+	p.lifetime = 2.6
+	p.visibility_aabb = AABB(Vector3(-radius, 0, -radius), Vector3(radius * 2, height + 4, radius * 2))
+	var pm := ParticleProcessMaterial.new()
+	pm.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_RING
+	pm.emission_ring_axis = Vector3.UP
+	pm.emission_ring_radius = radius * 0.8
+	pm.emission_ring_inner_radius = radius * 0.2
+	pm.emission_ring_height = 0.5
+	pm.direction = Vector3.UP
+	pm.spread = 4.0
+	pm.initial_velocity_min = height / 2.6 * 0.8
+	pm.initial_velocity_max = height / 2.6 * 1.1
+	pm.gravity = Vector3.ZERO
+	pm.orbit_velocity_min = 0.08
+	pm.orbit_velocity_max = 0.15
+	pm.scale_min = 0.6
+	pm.scale_max = 1.2
+	var grad := Gradient.new()
+	grad.set_color(0, Color(1, 1, 1, 0))
+	grad.add_point(0.2, Color(1, 1, 1, 0.7))
+	grad.set_color(grad.get_point_count() - 1, Color(1, 1, 1, 0))
+	var gt := GradientTexture1D.new()
+	gt.gradient = grad
+	pm.color_ramp = gt
+	p.process_material = pm
+	var streak := QuadMesh.new()
+	streak.size = Vector2(0.08, 1.6)
+	var sm := StandardMaterial3D.new()
+	sm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	sm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	sm.vertex_color_use_as_albedo = true
+	sm.billboard_mode = BaseMaterial3D.BILLBOARD_FIXED_Y
+	sm.albedo_color = Color(0.95, 0.98, 1.0, 0.8)
+	streak.material = sm
+	p.draw_pass_1 = streak
+	root.add_child(p)
+	return root
+
+
+static func signpost(text: String) -> Node3D:
+	var root := Node3D.new()
+	_p(root, MeshKit.cylinder(0.08, 0.1, 1.8, 6), WOOD_DARK, Vector3(0, 0.9, 0), Vector3.ZERO, Vector3.ONE, 0.02)
+	_box(root, Vector3(1.4, 0.45, 0.08), WOOD, Vector3(0.3, 1.5, 0), Vector3.ZERO, 0.03, 0.02)
+	var l := Label3D.new()
+	l.text = text
+	l.font_size = 40
+	l.pixel_size = 0.004
+	l.modulate = Color(0.25, 0.15, 0.08)
+	l.outline_size = 0
+	l.position = Vector3(0.3, 1.5, 0.05)
+	l.font = load("res://assets/fonts/Fredoka.ttf")
+	root.add_child(l)
+	return root
