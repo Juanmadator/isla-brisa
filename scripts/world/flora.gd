@@ -162,10 +162,29 @@ static func pine_leafy_mesh() -> ArrayMesh:
 	return mesh
 
 
+## Tronco algo curvado con raíces que asoman en la base y tres ramas que se abren hacia la copa.
 static func trunk_mesh(height: float, radius: float) -> ArrayMesh:
-	return MeshKit.lathe(PackedVector2Array([
-		Vector2(radius * 1.7, 0.0), Vector2(radius * 1.15, height * 0.12), Vector2(radius, height * 0.5),
-		Vector2(radius * 0.75, height), Vector2(0.0, height + 0.05)]), 9)
+	var f := func(u: float, v: float) -> Vector3:
+		var y := u * height
+		var ang := v * TAU
+		var r := radius * lerpf(1.0, 0.72, u)
+		# Raíces: cuatro contrafuertes que ensanchan la base.
+		var root_k := pow(1.0 - clampf(u / 0.18, 0.0, 1.0), 2.0)
+		r *= 1.0 + root_k * (0.55 + 0.45 * pow(absf(cos(ang * 2.0)), 3.0))
+		r *= 1.0 + sin(ang * 5.0 + u * 7.0) * 0.04
+		var bend := Vector3(sin(u * 2.2) * radius * 0.6, 0, cos(u * 1.7) * radius * 0.3 - radius * 0.3)
+		return Vector3(cos(ang) * r, y, sin(ang) * r) + bend
+	var parts := [[MeshKit.param_surface(f, 12, 14, Vector3(0, height * 0.5, 0), true), Transform3D()]]
+	var r := RandomNumberGenerator.new()
+	r.seed = int(height * 10.0)
+	for k in 3:
+		var a := TAU * k / 3.0 + 0.4
+		var len := height * r.randf_range(0.32, 0.45)
+		var base_y := height * r.randf_range(0.62, 0.82)
+		var tilt := Basis(Vector3(-sin(a), 0, cos(a)), deg_to_rad(r.randf_range(38.0, 55.0)))
+		var origin := Vector3(sin(2.2 * base_y / height) * radius * 0.6, base_y, 0)
+		parts.append([MeshKit.cylinder(radius * 0.22, radius * 0.45, len, 8), Transform3D(tilt, origin + tilt * Vector3(0, len * 0.5, 0))])
+	return _combine(parts)
 
 
 ## Tronco de palmera curvado (anillos superpuestos).

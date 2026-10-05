@@ -259,6 +259,55 @@ static func soft_box(size: Vector3, radius := 0.1, wobble := 0.025, taper := 0.0
 	return mesh
 
 
+## Copia de la malla con cada triángulo también por detrás (normal invertida): para
+## superficies abiertas que se ven por las dos caras (casco de una barca, velas, telas).
+static func double_sided(mesh: ArrayMesh) -> ArrayMesh:
+	var arrays := mesh.surface_get_arrays(0)
+	var verts: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var norms: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
+	var idx := PackedInt32Array()
+	if arrays[Mesh.ARRAY_INDEX] != null:
+		idx = arrays[Mesh.ARRAY_INDEX]
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var count := idx.size() if idx.size() > 0 else verts.size()
+	for t in range(0, count, 3):
+		var ids := [idx[t], idx[t + 1], idx[t + 2]] if idx.size() > 0 else [t, t + 1, t + 2]
+		for k in [0, 1, 2]:
+			st.set_normal(norms[ids[k]])
+			st.add_vertex(verts[ids[k]])
+		for k in [0, 2, 1]:
+			st.set_normal(-norms[ids[k]])
+			st.add_vertex(verts[ids[k]])
+	return st.commit()
+
+
+## Casco de barca de dos proas (como un llaüt): fino en los extremos, con la quilla que sube
+## hacia proa y popa y la borda arqueada. `v` de 0 a 1 recorre de una borda a la otra.
+## Abierto por arriba y de dos caras. Con `band` = [v0, v1] devuelve solo esa franja,
+## separada `lift` hacia fuera (para la franja pintada de la borda).
+static func hull(length: float, width: float, depth: float, band := Vector2(0.0, 1.0), lift := 0.0) -> ArrayMesh:
+	var key := "hull|%.2f|%.2f|%.2f|%s|%.3f" % [length, width, depth, band, lift]
+	if _mesh_cache.has(key):
+		return _mesh_cache[key]
+	var f := func(u: float, v: float) -> Vector3:
+		var s := sin(u * PI)
+		var w := width * 0.5 * pow(s, 0.55)
+		var top := 0.32 + 0.32 * pow(absf(2.0 * u - 1.0), 3.0)
+		var bottom := -depth * pow(s, 0.35)
+		var vv := lerpf(band.x, band.y, v)
+		var a := (vv - 0.5) * PI
+		var x := w * sin(a) * (1.0 + 0.12 * (1.0 - cos(a)))
+		var y := lerpf(bottom, top, 1.0 - cos(a))
+		var p := Vector3(x, y, (u - 0.5) * length)
+		if lift > 0.0:
+			p += Vector3(signf(x), 0.0, 0.0) * lift
+		return p
+	var mesh := double_sided(param_surface(f, 28, 18, Vector3(0, -depth * 2.0, 0), false))
+	_mesh_cache[key] = mesh
+	return mesh
+
+
 ## Fuste de columna clásica: acanaladuras, éntasis (algo más ancha a un tercio de la altura),
 ## se estrecha arriba y tiene desconchones aquí y allá. Base en y = 0, abierta por los extremos.
 static func column(height: float, radius: float, flutes := 16, seed_value := 0) -> ArrayMesh:

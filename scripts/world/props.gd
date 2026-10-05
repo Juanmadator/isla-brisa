@@ -170,13 +170,18 @@ static func _gable_roof(root: Node3D, w: float, d: float, top: float, roof_h: fl
 		var dir := Vector3(-sx * cos(a), sin(a), 0)
 		var eave := Vector3(sx * half, top, 0)
 		var rot := Vector3(0, 0, -sx * rad_to_deg(a))
-		MeshKit.part(root, MeshKit.rounded_box(Vector3(slope_len + 0.12, thick, depth), 0.05, 3), MeshKit.surface_mat(c, "tile", 0.1),
+		# Faldón algo ondulado (como un tejado viejo que ha cedido un poco).
+		MeshKit.part(root, MeshKit.soft_box(Vector3(slope_len + 0.12, thick, depth), 0.05, 0.035, 0.0, int(w * 10.0 + sx)), MeshKit.surface_mat(c, "tile", 0.1),
 			eave + dir * slope_len * 0.5 - n * thick * 0.5, rot)
 		# Filas de tejas: listones algo más oscuros que sobresalen del faldón.
 		for k in 4:
 			var t := 0.1 + k * 0.22
 			_box(root, Vector3(0.14, 0.07, depth + 0.02), tile, eave + dir * slope_len * t + n * 0.02, rot, 0.02, 0.0)
-	_p(root, MeshKit.cylinder(0.17, 0.17, depth + 0.12, 10), c.darkened(0.28), Vector3(0, top + roof_h, 0), Vector3(90, 0, 0), Vector3.ONE, 0.025)
+	# Cumbrera de tejas curvas solapadas.
+	var ridge_n := int(depth / 0.42) + 1
+	for k in ridge_n:
+		var z := -depth * 0.5 + (k + 0.5) * depth / ridge_n
+		_p(root, MeshKit.cylinder(0.15, 0.18, depth / ridge_n + 0.08, 12), c.darkened(0.24 + 0.04 * float(k % 2)), Vector3(0, top + roof_h + 0.01, z), Vector3(90, 0, 0), Vector3(1.0, 1.0, 0.8))
 	var under := thick / cos(a) + 0.02
 	var ye := maxf(roof_h * (1.0 - w / (half * 2.0)) - under, 0.02)
 	var gable := PackedVector2Array([Vector2(-w * 0.5, 0), Vector2(w * 0.5, 0), Vector2(w * 0.5, ye), Vector2(0, roof_h - under), Vector2(-w * 0.5, ye)])
@@ -406,25 +411,60 @@ static func beacon(stripe: Color, height := 13.0) -> Dictionary:
 static func dock(length: float) -> Node3D:
 	var root := Node3D.new()
 	var b := body(root)
+	var r := RandomNumberGenerator.new()
+	r.seed = 4242
 	var n := int(length / 0.6)
 	for i in n:
-		var c := WOOD if i % 2 == 0 else WOOD.lightened(0.08)
-		_box(root, Vector3(3.2, 0.18, 0.55), c, Vector3(0, 1.2, i * 0.6), Vector3(0, (i % 3 - 1) * 0.8, 0), 0.03, 0.02)
+		# Tablas de largo y tono distintos, algo torcidas y con rendijas entre ellas.
+		var c := WOOD.lerp(WOOD.lightened(0.12), r.randf()).darkened(r.randf() * 0.08)
+		var w := 3.2 + r.randf_range(-0.12, 0.08)
+		_box(root, Vector3(w, 0.16, 0.54), c, Vector3(r.randf_range(-0.08, 0.08), 1.2 + r.randf_range(-0.015, 0.015), i * 0.6),
+			Vector3(r.randf_range(-0.8, 0.8), r.randf_range(-1.6, 1.6), r.randf_range(-0.6, 0.6)))
+	# Largueros bajo las tablas y pilotes de troncos con cuerdas.
+	for s: int in [-1, 1]:
+		_p(root, MeshKit.cylinder(0.11, 0.11, length, 8), WOOD_DARK, Vector3(s * 1.2, 1.02, length * 0.5 - 0.3), Vector3(90, 0, 0))
 	for i in range(0, int(length / 3.0) + 1):
 		for s: int in [-1, 1]:
-			_p(root, MeshKit.cylinder(0.16, 0.18, 4.0, 8), WOOD_DARK, Vector3(s * 1.5, -0.8, i * 3.0), Vector3.ZERO, Vector3.ONE, 0.02)
+			var tilt := Vector3(r.randf_range(-2.5, 2.5), r.randf() * 360.0, r.randf_range(-2.5, 2.5))
+			_p(root, MeshKit.cylinder(0.15, 0.19, 4.2, 10), WOOD_DARK, Vector3(s * 1.5, -0.75, i * 3.0), tilt)
+			_p(root, MeshKit.torus(0.17, 0.215), Color(0.82, 0.74, 0.55), Vector3(s * 1.5, 0.55 + r.randf_range(-0.1, 0.1), i * 3.0), Vector3(r.randf_range(-6.0, 6.0), 0, 0))
 	box_col(b, Vector3(3.2, 0.3, length), Vector3(0, 1.15, length * 0.5 - 0.3))
 	return root
 
 
 static func boat() -> Node3D:
 	var root := Node3D.new()
-	var hull := PackedVector2Array([Vector2(0.0, -0.6), Vector2(0.9, -0.5), Vector2(1.25, 0.0), Vector2(1.3, 0.35), Vector2(0.0, 0.35)])
-	MeshKit.part(root, MeshKit.lathe(hull, 16), MeshKit.surface_mat(Color(0.25, 0.5, 0.75), "wood", 0.1), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 2.6))
-	_p(root, MeshKit.cylinder(1.15, 1.15, 0.08, 16), WOOD, Vector3(0, 0.25, 0), Vector3.ZERO, Vector3(1.0, 1.0, 2.5), 0.0)
-	_p(root, MeshKit.cylinder(0.07, 0.07, 4.0, 6), WOOD_DARK, Vector3(0, 2.2, -0.5), Vector3.ZERO, Vector3.ONE, 0.02)
-	var sail := MeshKit.extrude(PackedVector2Array([Vector2(0, 0), Vector2(2.2, 0), Vector2(0, 3.2)]), 0.04)
-	_p(root, sail, Color(0.98, 0.94, 0.85), Vector3(0.0, 0.6, -0.4), Vector3(-90, 90, 0), Vector3.ONE, 0.025)
+	var paint := Color(0.25, 0.5, 0.75)
+	# Casco de dos proas, pintado, con una franja blanca bajo la borda.
+	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62), MeshKit.surface_mat(paint, "wood", 0.1), Vector3(0, 0.05, 0))
+	# Forro interior de madera (el casco se ve por dentro).
+	MeshKit.part(root, MeshKit.hull(5.08, 2.38, 0.56), MeshKit.surface_mat(WOOD.lightened(0.05), "wood", 0.0), Vector3(0, 0.07, 0))
+	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62, Vector2(0.02, 0.12), 0.012), MeshKit.surface_mat(Color(0.96, 0.94, 0.88), "wood", 0.1), Vector3(0, 0.05, 0))
+	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62, Vector2(0.88, 0.98), 0.012), MeshKit.surface_mat(Color(0.96, 0.94, 0.88), "wood", 0.1), Vector3(0, 0.05, 0))
+	# Tablas del fondo, bancada (ahí se sienta el gatito) y regala.
+	for k in 5:
+		_box(root, Vector3(0.24, 0.05, 3.2 - absf(k - 2) * 0.6), WOOD, Vector3(-0.56 + k * 0.28, -0.12, 0))
+	_box(root, Vector3(2.1, 0.08, 0.36), WOOD, Vector3(0, 0.44, 0.4))
+	_box(root, Vector3(1.7, 0.08, 0.3), WOOD, Vector3(0, 0.4, -1.3))
+	# Mástil, botavara y vela hinchada por el viento.
+	var mast_z := -0.5
+	_p(root, MeshKit.cylinder(0.055, 0.075, 4.1, 8), WOOD_DARK, Vector3(0, 2.05, mast_z))
+	_p(root, MeshKit.cylinder(0.04, 0.045, 2.3, 8), WOOD_DARK, Vector3(0, 0.85, mast_z + 1.12), Vector3(90, 0, 0))
+	var tack := Vector3(0, 0.88, mast_z + 0.06)
+	var head := Vector3(0, 3.9, mast_z + 0.06)
+	var clew := Vector3(0, 0.9, mast_z + 2.2)
+	var sail := func(u: float, v: float) -> Vector3:
+		var p := tack + (clew - tack) * v * (1.0 - u) + (head - tack) * u
+		p.x += sin(v * PI) * 0.32 * (1.0 - u * 0.7)
+		return p
+	var sail_mesh := MeshKit.double_sided(MeshKit.param_surface(sail, 10, 8, Vector3(-3, 2, 0), false))
+	MeshKit.part(root, sail_mesh, MeshKit.mat(Color(0.98, 0.94, 0.85)))
+	# Jarcia: obenque a proa y escota a popa.
+	for line in [[head, Vector3(0, 0.4, -2.3)], [clew, Vector3(0, 0.45, 2.3)]]:
+		var from: Vector3 = line[0]
+		var to: Vector3 = line[1]
+		var l := MeshKit.part(root, MeshKit.cylinder(0.008, 0.008, from.distance_to(to), 4), MeshKit.mat(Color(0.85, 0.82, 0.75)), (from + to) * 0.5)
+		l.basis = Basis(Quaternion(Vector3.UP, (to - from).normalized()))
 	return root
 
 
@@ -586,9 +626,25 @@ static func crate(c := WOOD) -> Node3D:
 
 static func barrel() -> Node3D:
 	var root := Node3D.new()
-	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.38, 0), Vector2(0.46, 0.5), Vector2(0.38, 1.0), Vector2(0.0, 1.0)]), 12), WOOD, Vector3.ZERO, Vector3.ZERO, Vector3.ONE, 0.025)
-	for y: float in [0.2, 0.8]:
-		_p(root, MeshKit.torus(0.4, 0.46), Color(0.35, 0.35, 0.38), Vector3(0, y, 0), Vector3.ZERO, Vector3(1, 0.6, 1), 0.0)
+	# Duelas: tablas curvas de tono algo distinto, con aros de hierro y tapa hundida.
+	var staves := 12
+	var prof := PackedVector2Array([Vector2(0.37, 0), Vector2(0.43, 0.25), Vector2(0.46, 0.5), Vector2(0.43, 0.75), Vector2(0.37, 1.0)])
+	for k in staves:
+		var a0 := TAU * k / staves
+		var stave := Node3D.new()
+		stave.rotation.y = -a0
+		root.add_child(stave)
+		var tone := WOOD.darkened(0.04 * float(k % 3)).lightened(0.03 * float((k * 7) % 2))
+		for i in prof.size() - 1:
+			var p0 := prof[i]
+			var p1 := prof[i + 1]
+			var mid := (p0 + p1) * 0.5
+			var ang := rad_to_deg(atan2(p1.x - p0.x, p1.y - p0.y))
+			_p(stave, MeshKit.rounded_box(Vector3(0.05, p0.distance_to(p1) + 0.01, 2.0 * PI * mid.x / staves - 0.012), 0.012, 2),
+				tone, Vector3(mid.x - 0.025, mid.y, 0), Vector3(0, 0, -ang))
+	_p(root, MeshKit.cylinder(0.36, 0.36, 0.04, 16), WOOD.darkened(0.1), Vector3(0, 0.95, 0))
+	for y: float in [0.14, 0.86]:
+		_p(root, MeshKit.torus(0.4, 0.45), Color(0.32, 0.32, 0.35), Vector3(0, y, 0), Vector3.ZERO, Vector3(1, 0.7, 1))
 	var b := body(root)
 	cyl_col(b, 0.45, 1.0, Vector3(0, 0.5, 0))
 	return root
@@ -683,19 +739,57 @@ static func stone_block(size: Vector3, c := STONE) -> Node3D:
 
 static func cabin(log_color := WOOD) -> Node3D:
 	var root := Node3D.new()
+	var r := RandomNumberGenerator.new()
+	r.seed = 515
+	# Troncos con corteza, de grosor algo distinto, que se cruzan y sobresalen en las esquinas.
+	var bark := Color(0.5, 0.36, 0.24)
 	for i in 7:
 		var y := 0.25 + i * 0.42
 		for side in 4:
 			var along_x := side % 2 == 0
 			var sgn := -1 if side < 2 else 1
-			var len := 5.4 if along_x else 4.4
-			var c := log_color if (i + side) % 2 == 0 else log_color.darkened(0.08)
-			var pos := Vector3(0, y, sgn * 2.0) if along_x else Vector3(sgn * 2.5, y, 0)
-			var rot := Vector3(0, 0, 90) if along_x else Vector3(90, 0, 0)
-			_p(root, MeshKit.cylinder(0.22, 0.22, len, 8), c, pos, rot, Vector3.ONE, 0.02)
-	_roof(root, 6.4, 2.0, 5.6, Color(0.42, 0.55, 0.32), Vector3(0, 3.05, 0))
-	_box(root, Vector3(1.1, 2.0, 0.15), WOOD_DARK, Vector3(0.8, 1.0, 2.2), Vector3.ZERO, 0.04, 0.02)
-	_window(root, Vector3(-1.2, 1.7, 2.22), 0.0, Color(0.42, 0.55, 0.32))
+			var len := 5.8 if along_x else 4.8
+			var rad := 0.22 * r.randf_range(0.92, 1.08)
+			var c := log_color.lerp(bark, 0.35).darkened(r.randf() * 0.1)
+			var pos := Vector3(r.randf_range(-0.08, 0.08), y + (0.21 if not along_x else 0.0), sgn * 2.0) if along_x else Vector3(sgn * 2.5, y + 0.21, r.randf_range(-0.08, 0.08))
+			var rot := Vector3(0, r.randf_range(-0.6, 0.6), 90) if along_x else Vector3(90, 0, r.randf_range(-0.6, 0.6))
+			MeshKit.part(root, MeshKit.cylinder(rad, rad, len, 12), MeshKit.surface_mat(c, "bark", 0.08), pos, rot)
+			# Testa clara del tronco en cada extremo.
+			for e: int in [-1, 1]:
+				var cap_pos := pos + (Vector3(e * len * 0.5, 0, 0) if along_x else Vector3(0, 0, e * len * 0.5))
+				_p(root, MeshKit.cylinder(rad * 0.9, rad * 0.9, 0.02, 12), log_color.lightened(0.25), cap_pos, rot)
+	# Tejado de tablas cubierto de musgo, con hastiales de tablas verticales.
+	var top := 3.15
+	var roof_h := 2.0
+	var half := 3.3
+	var depth := 5.6
+	var a := atan2(roof_h, half)
+	var slope := sqrt(half * half + roof_h * roof_h)
+	var moss := Color(0.42, 0.55, 0.32)
+	for sx: float in [-1.0, 1.0]:
+		var n := Vector3(sx * sin(a), cos(a), 0)
+		var dir := Vector3(-sx * cos(a), sin(a), 0)
+		var eave := Vector3(sx * half, top, 0)
+		var rot := Vector3(0, 0, -sx * rad_to_deg(a))
+		for k in 6:
+			var t := (k + 0.5) / 6.0
+			_box(root, Vector3(slope / 6.0 + 0.06, 0.1, depth + r.randf_range(-0.1, 0.15)), WOOD_DARK.lerp(moss, 0.25),
+				eave + dir * slope * t - n * 0.05 + n * 0.012 * k, rot + Vector3(r.randf_range(-1.0, 1.0), 0, 0))
+		# Almohadillas de musgo encima de las tablas.
+		for k in 5:
+			var t2 := r.randf_range(0.15, 0.85)
+			var z := r.randf_range(-depth * 0.4, depth * 0.4)
+			_p(root, MeshKit.blob(r.randf_range(0.5, 0.9), 0.22, 0.25, k + int(sx * 10.0), 12), moss.lightened(r.randf() * 0.12),
+				eave + dir * slope * t2 + n * 0.06 + Vector3(0, 0, z), rot)
+	_p(root, MeshKit.cylinder(0.16, 0.16, depth + 0.3, 10), log_color.lerp(bark, 0.4), Vector3(0, top + roof_h, 0), Vector3(90, 0, 0))
+	for sz: int in [-1, 1]:
+		var gable := PackedVector2Array([Vector2(-2.5, 0), Vector2(2.5, 0), Vector2(0, roof_h * 0.72)])
+		_prism(root, gable, 0.1, WOOD, Vector3(0, top, sz * 2.05))
+	_box(root, Vector3(1.1, 2.0, 0.15), WOOD_DARK, Vector3(0.8, 1.0, 2.25))
+	_window(root, Vector3(-1.2, 1.7, 2.3), 0.0, moss)
+	# Leña apilada junto a la pared.
+	for k in 6:
+		_p(root, MeshKit.cylinder(0.11, 0.11, 0.9, 10), log_color.lerp(bark, 0.3), Vector3(-2.95, 0.12 + (k / 3) * 0.2, -0.6 + (k % 3) * 0.23 + (k / 3) * 0.1), Vector3(0, 0, 90))
 	var b := body(root)
 	box_col(b, Vector3(5.2, 3.0, 4.2), Vector3(0, 1.5, 0))
 	return root
