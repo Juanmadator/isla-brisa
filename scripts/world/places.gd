@@ -247,6 +247,15 @@ func _add_bench(p: Vector2, yaw: float) -> void:
 	benches.append([seat, yaw + PI])
 
 
+## Anillo de crecimiento en el corte del tocón (un aro fino apenas por encima de la madera).
+func _place_ring(parent: Node3D, radius: float, col: Color) -> void:
+	var ring := func(u: float, v: float) -> Vector3:
+		var ang := v * TAU
+		var r := radius * (1.0 + sin(ang * 3.0 + 1.0) * 0.05) + (u - 0.5) * 0.06
+		return Vector3(cos(ang) * r, 5.1 + sin(ang * 2.0) * 0.18 * (r / 2.35) - (r / 2.35) * (r / 2.35) * 0.08 + 0.012, sin(ang) * r)
+	MeshKit.part(parent, MeshKit.param_surface(ring, 1, 40, Vector3(0, -10, 0), true), MeshKit.mat(col), Vector3.ZERO)
+
+
 func _at(n: Node3D, p: Vector2) -> Node3D:
 	n.position = island.ground(p, -0.1)
 	return n
@@ -419,9 +428,24 @@ func _build_extras() -> void:
 	var stump := Node3D.new()
 	add_child(stump)
 	stump.position = st - Vector3(0, 0.3, 0)
-	var prof := PackedVector2Array([Vector2(3.4, 0), Vector2(2.6, 0.8), Vector2(2.4, 5.0), Vector2(2.0, 5.2), Vector2(0.0, 4.8)])
-	MeshKit.part(stump, MeshKit.lathe(prof, 12), MeshKit.mat(Color(0.55, 0.4, 0.28), 0.05), Vector3.ZERO)
-	MeshKit.part(stump, MeshKit.cylinder(2.0, 2.0, 0.1, 12), MeshKit.mat(Color(0.85, 0.7, 0.45), 0.0), Vector3(0, 5.15, 0))
+	# Tronco con corteza y contrafuertes de raíces, corte irregular y anillos en la madera.
+	var trunk := func(u: float, v: float) -> Vector3:
+		var ang := v * TAU
+		var y := u * 5.1
+		var r := 2.35 + sin(ang * 3.0 + 1.0) * 0.12 + sin(ang * 7.0) * 0.05
+		var root_k := pow(1.0 - clampf(u / 0.3, 0.0, 1.0), 2.0)
+		r *= 1.0 + root_k * (0.35 + 0.6 * pow(absf(cos(ang * 2.5)), 4.0))
+		y += sin(ang * 2.0) * 0.18 * u
+		return Vector3(cos(ang) * r, y, sin(ang) * r)
+	MeshKit.part(stump, MeshKit.param_surface(trunk, 12, 40, Vector3(0, 2.5, 0), true), MeshKit.surface_mat(Color(0.5, 0.36, 0.25), "bark", 0.1, 0.5), Vector3.ZERO)
+	var top := func(u: float, v: float) -> Vector3:
+		var ang := v * TAU
+		var r := u * 2.35 * (1.0 + sin(ang * 3.0 + 1.0) * 0.05)
+		return Vector3(cos(ang) * r, 5.1 + sin(ang * 2.0) * 0.18 * u - u * u * 0.08, sin(ang) * r)
+	var ring_mat := MeshKit.mat(Color(0.86, 0.7, 0.46))
+	MeshKit.part(stump, MeshKit.param_surface(top, 8, 40, Vector3(0, 0, 0), true), ring_mat, Vector3.ZERO)
+	for k in range(1, 5):
+		_place_ring(stump, k * 0.45, Color(0.72, 0.55, 0.34))
 	var sb := Props.body(stump)
 	Props.cyl_col(sb, 2.5, 5.2, Vector3(0, 2.6, 0))
 	anchors["stump_top"] = stump.position + Vector3(0, 5.3, 0)
@@ -431,9 +455,16 @@ func _build_extras() -> void:
 	add_child(stack)
 	stack.position = Vector3(ss.x, minf(ss.y, -1.0) - 1.0, ss.z)
 	anchors["sea_stack_top"] = stack.position + Vector3(0, 16.4, 0)
-	# Pilas de piedras (marcas de camino) y bloques para la chispa del bosque
+	# Pila de piedras (marca de camino) para la chispa del bosque: dos rocas grandes apiladas.
 	var spark_b := Vector2(-236, -6)
-	_place(Props.stone_block(Vector3(3.0, 2.2, 3.0), Props.STONE_DARK), spark_b, 0.2, 0.3)
-	_place(Props.stone_block(Vector3(2.0, 2.0, 2.0), Props.STONE), spark_b + Vector2(0.3, -0.2), 0.7, -1.9)
+	var pile := Node3D.new()
+	add_child(pile)
+	pile.position = island.ground(spark_b, -0.3)
+	MeshKit.part(pile, MeshKit.rock(901, 0.7), MeshKit.surface_mat(Props.STONE_DARK, "stone", 0.1), Vector3(0, 0.75, 0), Vector3(0, 20, 0), Vector3(1.8, 1.5, 1.7))
+	MeshKit.part(pile, MeshKit.rock(902, 0.75), MeshKit.surface_mat(Props.STONE, "stone", 0.1), Vector3(0.2, 2.75, -0.1), Vector3(0, 70, 4), Vector3(1.2, 1.25, 1.15))
+	MeshKit.part(pile, MeshKit.blob(0.5, 0.35, 0.25, 7, 12), MeshKit.mat(Color(0.42, 0.6, 0.3)), Vector3(-0.9, 1.6, 0.8))
+	var pb := Props.body(pile)
+	Props.cyl_col(pb, 1.7, 2.0, Vector3(0, 1.0, 0))
+	Props.cyl_col(pb, 1.1, 1.8, Vector3(0.2, 2.9, -0.1))
 	anchors["rock_stack_top"] = island.ground(spark_b, 4.2)
 	clear_zones.append(Vector3(spark_b.x, spark_b.y, 4.0))

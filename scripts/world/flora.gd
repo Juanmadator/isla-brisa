@@ -266,6 +266,24 @@ static func leafy_materials(sway: float, needles := false) -> Array:
 	return [core, leaves]
 
 
+## Mata de hojas para una malla suelta (no MultiMesh): el color va en el material.
+static func leafy_clump(radius: float, flat: float, color: Color, seed_value: int) -> ArrayMesh:
+	var lobes := [[Vector3.ZERO, radius, flat]]
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_value
+	for k in 3:
+		var a := TAU * k / 3.0 + r.randf()
+		lobes.append([Vector3(cos(a) * radius * 0.55, -radius * flat * 0.2, sin(a) * radius * 0.55), radius * 0.6, flat])
+	var mesh := leafy_mesh(lobes, clampf(radius * 0.45, 0.25, 0.6), 4.0 / maxf(radius, 0.5), seed_value)
+	var mats := leafy_materials(0.2)
+	for m: ShaderMaterial in mats:
+		m.set_shader_parameter("use_instance_tint", false)
+		m.set_shader_parameter("albedo", color if m.shader.resource_path.ends_with("foliage.gdshader") else color.darkened(0.35))
+	mesh.surface_set_material(0, mats[0])
+	mesh.surface_set_material(1, mats[1])
+	return mesh
+
+
 static func _leafy(mesh: ArrayMesh, sway: float, needles := false) -> ArrayMesh:
 	var mats := leafy_materials(sway, needles)
 	mesh.surface_set_material(0, mats[0])

@@ -653,13 +653,28 @@ static func barrel() -> Node3D:
 ## Cometas de colores colgadas de una cuerda (taller de Nerea).
 static func kite(c1: Color, c2: Color, size := 1.0) -> Node3D:
 	var root := Node3D.new()
-	var poly := PackedVector2Array([Vector2(0, -0.9), Vector2(0.55, 0), Vector2(0, 0.5), Vector2(-0.55, 0)])
-	var half_a := PackedVector2Array([Vector2(0, -0.9), Vector2(0.55, 0), Vector2(0, 0.5)])
-	var half_b := PackedVector2Array([Vector2(0, -0.9), Vector2(0, 0.5), Vector2(-0.55, 0)])
-	_p(root, MeshKit.extrude(half_a, 0.03), c1, Vector3.ZERO, Vector3(90, 0, 0), Vector3.ONE * size, 0.02)
-	_p(root, MeshKit.extrude(half_b, 0.03), c2, Vector3.ZERO, Vector3(90, 0, 0), Vector3.ONE * size, 0.02)
-	for i in 3:
-		_p(root, MeshKit.sphere(0.06, 5), [c1, c2, GOLD][i], Vector3(0, -0.6 * size - i * 0.25, 0), Vector3.ZERO, Vector3.ONE, 0.0)
+	# Cuatro paños de tela combados por el viento entre las varillas (dos colores alternos).
+	var tips := [Vector2(0, 0.5), Vector2(0.55, 0), Vector2(0, -0.9), Vector2(-0.55, 0)]
+	for q in 4:
+		var a: Vector2 = tips[q]
+		var b: Vector2 = tips[(q + 1) % 4]
+		var panel := func(u: float, v: float) -> Vector3:
+			var p := (a * (1.0 - v) + b * v) * u
+			var bulge := sin(u * PI) * sin(v * PI) * 0.06 + u * 0.03
+			return Vector3(p.x, p.y, bulge) * size
+		var m := MeshKit.double_sided(MeshKit.param_surface(panel, 6, 6, Vector3(0, 0, -1.0), false))
+		MeshKit.part(root, m, MeshKit.mat(c1 if q % 2 == 0 else c2))
+	# Varillas y cola de lazos.
+	var stick := MeshKit.mat(WOOD_DARK)
+	MeshKit.part(root, MeshKit.cylinder(0.012, 0.012, 1.4 * size, 5), stick, Vector3(0, -0.2 * size, 0.035 * size))
+	MeshKit.part(root, MeshKit.cylinder(0.012, 0.012, 1.1 * size, 5), stick, Vector3(0, 0, 0.035 * size), Vector3(0, 0, 90))
+	for i in 4:
+		var bow := Node3D.new()
+		bow.position = Vector3(sin(i * 1.3) * 0.08, -0.95 * size - i * 0.22 * size, 0)
+		bow.rotation.z = sin(i * 1.7) * 0.4
+		root.add_child(bow)
+		for sx: float in [-1.0, 1.0]:
+			_p(bow, MeshKit.cone(0.05 * size, 0.1 * size, 8), [c1, c2, GOLD, c1][i], Vector3(sx * 0.045 * size, 0, 0), Vector3(0, 0, sx * 90.0), Vector3(1.0, 1.0, 0.4))
 	return root
 
 
@@ -680,11 +695,15 @@ static func needle_rock(height := 11.0) -> Node3D:
 			var y := (i + 1) * 2.2
 			var rad := lerpf(3.1, 1.75, y / height) * 0.98
 			var g := Color(0.42, 0.68, 0.3).lerp(Color(0.55, 0.75, 0.32), r.randf())
-			_p(root, MeshKit.blob(0.55, 0.4, 0.25, i + 20, 10), g, Vector3(cos(a) * rad, y, sin(a) * rad))
-	_p(root, MeshKit.blob(1.6, 0.32, 0.2, 2, 12), Color(0.42, 0.68, 0.3), Vector3(0, height + 0.15, 0))
-	for k in 3:
-		var a2 := TAU * k / 3.0 + 0.4
-		_p(root, MeshKit.blob(0.45, 0.6, 0.2, 30 + k, 10), Color(0.38, 0.62, 0.28), Vector3(cos(a2) * 1.1, height + 0.3, sin(a2) * 1.1))
+			var clump := MeshInstance3D.new()
+			clump.mesh = Flora.leafy_clump(0.6, 0.5, g, i + 20)
+			clump.position = Vector3(cos(a) * rad, y + 0.15, sin(a) * rad)
+			root.add_child(clump)
+	_p(root, MeshKit.blob(1.6, 0.18, 0.2, 2, 12), Color(0.36, 0.55, 0.26), Vector3(0, height + 0.05, 0))
+	var cap := MeshInstance3D.new()
+	cap.mesh = Flora.leafy_clump(1.5, 0.35, Color(0.62, 0.86, 0.45), 77)
+	cap.position = Vector3(0, height + 0.35, 0)
+	root.add_child(cap)
 	var b := body(root)
 	cyl_col(b, 2.4, height, Vector3(0, height * 0.5, 0))
 	return root
@@ -892,14 +911,24 @@ static func campfire() -> Dictionary:
 
 static func chest() -> Dictionary:
 	var root := Node3D.new()
-	_box(root, Vector3(1.1, 0.6, 0.75), Color(0.6, 0.35, 0.22), Vector3(0, 0.3, 0), Vector3.ZERO, 0.05, 0.03)
+	var wood := Color(0.6, 0.35, 0.22)
+	# Cuerpo de tablas horizontales con cantoneras y bandas de latón.
+	for k in 3:
+		_box(root, Vector3(1.1, 0.2, 0.75), wood.lightened(0.04 * float(k % 2)), Vector3(0, 0.1 + k * 0.2, 0))
 	for x: float in [-0.4, 0.4]:
-		_box(root, Vector3(0.1, 0.62, 0.78), GOLD, Vector3(x, 0.31, 0), Vector3.ZERO, 0.02, 0.0)
+		_box(root, Vector3(0.1, 0.62, 0.78), GOLD, Vector3(x, 0.31, 0))
+	for sx: int in [-1, 1]:
+		for sz: int in [-1, 1]:
+			_box(root, Vector3(0.12, 0.14, 0.12), GOLD.darkened(0.1), Vector3(sx * 0.52, 0.07, sz * 0.34))
 	var lid := Node3D.new()
 	lid.position = Vector3(0, 0.6, -0.37)
 	root.add_child(lid)
-	_box(lid, Vector3(1.12, 0.32, 0.77), Color(0.66, 0.38, 0.24), Vector3(0, 0.14, 0.37), Vector3.ZERO, 0.12, 0.03)
+	# Tapa abombada (medio cilindro) con bandas de latón y cerradura.
+	_p(lid, MeshKit.cylinder(0.38, 0.38, 1.12, 16), wood.lightened(0.06), Vector3(0, 0.0, 0.37), Vector3(0, 0, 90), Vector3(1.0, 1.0, 0.78))
+	for x: float in [-0.4, 0.4]:
+		_p(lid, MeshKit.cylinder(0.395, 0.395, 0.1, 16), GOLD, Vector3(x, 0.0, 0.37), Vector3(0, 0, 90), Vector3(1.0, 1.0, 0.79))
 	_box(lid, Vector3(0.22, 0.26, 0.08), GOLD, Vector3(0, 0.0, 0.77), Vector3.ZERO, 0.03, 0.015)
+	_p(lid, MeshKit.sphere(0.035, 10), Color(0.2, 0.15, 0.1), Vector3(0, -0.03, 0.82))
 	var b := body(root)
 	box_col(b, Vector3(1.1, 0.9, 0.75), Vector3(0, 0.45, 0))
 	return {"root": root, "lid": lid}

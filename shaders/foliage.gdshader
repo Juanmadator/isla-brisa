@@ -5,6 +5,8 @@ render_mode blend_mix, depth_draw_opaque, cull_disabled, diffuse_lambert, specul
 // se ilumina como un volumen suave; a contraluz el sol se cuela entre las hojas.
 
 uniform vec4 albedo : source_color = vec4(1.0);
+// Color por instancia (MultiMesh); en mallas sueltas, desactivado y manda `albedo`.
+uniform bool use_instance_tint = true;
 uniform float sway = 1.0;
 // Multiplica el tamaño de cada tarjeta (que va en COLOR.r, en metros).
 uniform float card_size = 1.0;
@@ -26,7 +28,7 @@ float h1(float x) {
 }
 
 void vertex() {
-	inst_tint = INSTANCE_CUSTOM.rgb;
+	inst_tint = use_instance_tint ? INSTANCE_CUSTOM.rgb : vec3(1.0);
 	seed = UV2.x;
 	depth_in = UV2.y;
 	vec3 root = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
