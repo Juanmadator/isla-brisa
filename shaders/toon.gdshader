@@ -21,7 +21,7 @@ uniform float night_emission = 0.0;
 // Variación de tono de la superficie (0 = color plano).
 uniform float detail = 0.07;
 uniform float detail_scale = 2.5;
-// 0 nada, 1 madera, 2 piedra, 3 enlucido, 4 tejas, 5 corteza, 6 paja.
+// 0 nada, 1 madera, 2 piedra, 3 enlucido, 4 tejas, 5 corteza, 6 paja, 7 tela, 8 pelo.
 uniform int surface = 0;
 // Escala del dibujo del material (1 = tamaño real).
 uniform float surface_scale = 1.0;
@@ -143,6 +143,24 @@ float surface_pattern(vec3 p, vec3 n, inout vec3 c) {
 		float cracks = smoothstep(0.65, 0.8, vnoise(vec2(ang * 6.0, obj_v.y * 5.0)));
 		c *= mix(0.78, 1.06, g) * (1.0 - cracks * 0.15);
 		return g * 0.01;
+	}
+	if (surface == 7) {
+		// Tela: pliegues suaves que caen en vertical y una trama fina.
+		float ang = atan(obj_v.z, obj_v.x);
+		float folds = sin(ang * 7.0 + vnoise(vec2(ang * 2.0, obj_v.y * 6.0)) * 3.0) * 0.5 + 0.5;
+		float weave = (sin(p.x * 420.0) * sin(p.y * 420.0) + sin(p.z * 420.0) * sin(p.y * 420.0)) * 0.25 + 0.5;
+		c *= mix(0.9, 1.04, folds) * mix(0.97, 1.02, weave);
+		return folds * 0.006 + weave * 0.0006;
+	}
+	if (surface == 8) {
+		// Pelo: mechones que bajan desde la coronilla y un brillo en anillo.
+		vec3 d = normalize(obj_v + vec3(0.0, -0.02, 0.0));
+		float ang = atan(d.z, d.x);
+		float strands = vnoise(vec2(ang * 22.0, d.y * 3.0)) * 0.6 + vnoise(vec2(ang * 60.0, d.y * 6.0)) * 0.4;
+		float ring = smoothstep(0.2, 0.45, d.y) * (1.0 - smoothstep(0.55, 0.8, d.y));
+		c *= mix(0.8, 1.06, strands);
+		c *= 1.0 + ring * 0.22 * smoothstep(0.45, 0.75, strands);
+		return strands * 0.004;
 	}
 	if (surface == 6) {
 		// Paja: haces que bajan por la pendiente, en capas que se solapan.

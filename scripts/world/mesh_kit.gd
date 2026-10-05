@@ -50,7 +50,7 @@ static func vcol_mat(_outline := 0.02, rim := 0.22) -> ShaderMaterial:
 	return m
 
 
-const SURFACES := {"wood": 1, "stone": 2, "plaster": 3, "tile": 4, "bark": 5, "thatch": 6}
+const SURFACES := {"wood": 1, "stone": 2, "plaster": 3, "tile": 4, "bark": 5, "thatch": 6, "cloth": 7, "hair": 8}
 
 
 ## Material con el dibujo y el relieve de un material ("wood", "stone", "plaster", "tile",

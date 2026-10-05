@@ -13,6 +13,10 @@ Lía llega en barca a Isla Brisa, la isla de su abuela Olga, y se encuentra el a
 
 Tráiler: [docs/trailer.mp4](docs/trailer.mp4)
 
+**Antes y después** de quitar lo geométrico (materiales con relieve, biseles, rocas talladas, barca de verdad):
+
+![Antes y después](docs/antes_despues.jpg)
+
 ## Cómo se juega
 
 | Acción | Teclado y ratón | Mando |
@@ -124,7 +128,7 @@ Las pruebas de movimiento usan un piloto automático que juega de verdad con la 
 | `scripts/game/gameplay.gd` | Vecinos, diálogos, coleccionables, cofres, faros, carrera y encargos |
 | `scripts/game/catalog.gd` | Datos: vecinos, plumas, cofres, gatitos, setas, chispas y tienda |
 | `scripts/ui/` | HUD, aguante, brújula, diálogos, mapa, menús, tiendas y probador 3D (`fitting_room.gd`) |
-| `shaders/` | Sombreado suave, terreno con estratos de roca, hierba, follaje de hojas, agua y cielo |
+| `shaders/` | Sombreado suave con materiales procedurales y relieve (madera, piedra, enlucido, tejas, corteza, paja, tela y pelo), terreno con estratos de roca, hierba, follaje de hojas, llamas, agua y cielo |
 | `tools/` | Comprobación, capturas, vista del mapa y sintetizador de audio |
 
 ## Créditos

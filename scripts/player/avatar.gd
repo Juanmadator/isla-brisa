@@ -101,13 +101,13 @@ func build(s: Dictionary) -> void:
 		Vector2(0.0, -0.16), Vector2(hem, -0.16), Vector2(lerpf(hem, 0.2 * g, 0.45), -0.07), Vector2(0.195 * g, 0.04),
 		Vector2(0.178 * g, 0.17), Vector2(0.172 * g, 0.29), Vector2(0.158 * g, 0.38), Vector2(0.125 * g, 0.445),
 		Vector2(0.075, 0.485), Vector2(0.0, 0.5)])
-	MeshKit.part(torso, MeshKit.lathe(prof, 18), MeshKit.mat(shirt, o), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 0.84))
+	MeshKit.part(torso, MeshKit.lathe(prof, 18), MeshKit.surface_mat(shirt, "cloth", 0.06), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 0.84))
 	# Dobladillo un poco más oscuro.
 	if spec["dress"]:
 		MeshKit.part(torso, MeshKit.lathe(PackedVector2Array([Vector2(hem * 1.01, -0.165), Vector2(hem * 0.985, -0.125), Vector2(0.0, -0.125)]), 18), MeshKit.mat(shirt.darkened(0.15), 0.0), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 0.84))
 	MeshKit.part(torso, MeshKit.torus(0.15 * g, 0.2 * g), MeshKit.mat(Color(0.45, 0.3, 0.2), 0.0), Vector3(0, 0.02, 0), Vector3.ZERO, Vector3(1, 0.7, 0.85))
 	if spec["apron"] != null:
-		MeshKit.part(torso, MeshKit.rounded_box(Vector3(0.28 * g, 0.42, 0.04), 0.02, 1), MeshKit.mat(spec["apron"], o), Vector3(0, 0.08, -0.17 * g))
+		MeshKit.part(torso, MeshKit.rounded_box(Vector3(0.28 * g, 0.42, 0.04), 0.02, 1), MeshKit.surface_mat(spec["apron"], "cloth", 0.06), Vector3(0, 0.08, -0.17 * g))
 	if spec["bag"]:
 		MeshKit.part(torso, MeshKit.rounded_box(Vector3(0.28, 0.24, 0.12), 0.04, 2), MeshKit.mat(Color(0.55, 0.35, 0.2), o), Vector3(0.2 * g, -0.02, 0.05))
 		MeshKit.part(torso, MeshKit.rounded_box(Vector3(0.04, 0.62, 0.04), 0.01, 1), MeshKit.mat(Color(0.45, 0.28, 0.16), 0.0), Vector3(0.02, 0.2, -0.02), Vector3(0, 0, 38))
@@ -169,12 +169,12 @@ func build(s: Dictionary) -> void:
 	# Bufanda con cola que ondea
 	if spec["scarf"] != null:
 		var sc: Color = spec["scarf"]
-		MeshKit.part(torso, MeshKit.torus(0.07, 0.15), MeshKit.mat(sc, o), Vector3(0, 0.46, 0), Vector3.ZERO, Vector3(1, 1.6, 1))
+		MeshKit.part(torso, MeshKit.torus(0.07, 0.15), MeshKit.surface_mat(sc, "cloth", 0.06), Vector3(0, 0.46, 0), Vector3.ZERO, Vector3(1, 1.6, 1))
 		scarf_tail = Node3D.new()
 		scarf_tail.position = Vector3(0.06, 0.46, 0.1)
 		torso.add_child(scarf_tail)
 		var seg := MeshKit.rounded_box(Vector3(0.1, 0.03, 0.22), 0.012, 1)
-		MeshKit.part(scarf_tail, seg, MeshKit.mat(sc, o), Vector3(0, 0, 0.11))
+		MeshKit.part(scarf_tail, seg, MeshKit.surface_mat(sc, "cloth", 0.06), Vector3(0, 0, 0.11))
 		var tip := Node3D.new()
 		tip.name = "Tip"
 		tip.position = Vector3(0, 0, 0.21)
@@ -193,7 +193,7 @@ func build(s: Dictionary) -> void:
 
 func _build_hair(h: Node3D, o: float) -> void:
 	var hc: Color = spec["hair"]
-	var m := MeshKit.mat(hc, o)
+	var m := MeshKit.surface_mat(hc, "hair", 0.08)
 	match spec["hair_style"]:
 		"bob":
 			MeshKit.part(h, MeshKit.blob(0.275, 0.95, 0.06, 4, 12), m, Vector3(0, 0.3, 0.035))
@@ -309,7 +309,7 @@ func _limb(parent: Node3D, at: Vector3, radius: float, length: float, color: Col
 	joint.position = Vector3(0, -half, 0)
 	pivot.add_child(joint)
 	joints[limb_name] = joint
-	var cloth := MeshKit.mat(color, 0.02)
+	var cloth := MeshKit.surface_mat(color, "cloth", 0.06)
 	if is_arm:
 		# Manga: hombro redondo y algo más ancha arriba; antebrazo con puño y mano de manopla.
 		var up := PackedVector2Array([Vector2(0.0, -half - 0.02), Vector2(r * 0.94, -half), Vector2(r * 1.02, -half * 0.5),
