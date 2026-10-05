@@ -60,12 +60,15 @@ func set_focus(p: Vector3) -> void:
 	RenderingServer.global_shader_parameter_set("player_pos", p)
 
 
-## Alterna los efectos caros (oclusión ambiental, antialiasing por pantalla).
+## Alterna los efectos caros (oclusión ambiental, luz rebotada, bruma, reflejos en el agua y
+## antialiasing por pantalla).
 func set_quality(high: bool) -> void:
 	if sky and sky.env:
 		sky.env.ssao_enabled = high
 		sky.env.ssil_enabled = high
 		sky.env.volumetric_fog_enabled = high
+	if terrain:
+		terrain.set_water_quality(high)
 	var vp := get_viewport()
 	if vp:
 		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_SMAA if high else Viewport.SCREEN_SPACE_AA_FXAA

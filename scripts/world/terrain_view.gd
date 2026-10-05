@@ -6,6 +6,8 @@ const CHUNK := 64
 
 var island: Island
 var body: StaticBody3D
+## Materiales del mar y del lago: [material, pasos de reflejo en calidad alta].
+var water_mats: Array = []
 
 
 func build(isl: Island) -> void:
@@ -96,11 +98,17 @@ func _build_water() -> void:
 	var lmat: ShaderMaterial = wmat.duplicate()
 	lmat.set_shader_parameter("wave_height", 0.06)
 	lmat.set_shader_parameter("shallow_color", Color(0.42, 0.85, 0.78))
-	lmat.set_shader_parameter("deep_color", Color(0.12, 0.45, 0.55))
 	lmat.set_shader_parameter("depth_range", 6.0)
 	lmat.set_shader_parameter("clip_center", Island.LAKE)
 	lmat.set_shader_parameter("clip_radius", 57.0)
+	# Lago Espejo: casi sin rizos, refleja mucho y con nitidez.
+	lmat.set_shader_parameter("ripple_amount", 0.25)
+	lmat.set_shader_parameter("reflect_min", 0.3)
+	lmat.set_shader_parameter("reflect_max", 0.92)
+	lmat.set_shader_parameter("ssr_strength", 1.0)
+	lmat.set_shader_parameter("deep_color", Color(0.08, 0.3, 0.36))
 	lake.material_override = lmat
+	water_mats = [[wmat, 40], [lmat, 48]]
 	lake.position = Vector3(Island.LAKE.x, Island.LAKE_LEVEL, Island.LAKE.y)
 	lake.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	lake.name = "Lake"
@@ -165,3 +173,9 @@ static func _sea_mesh(size: float, cells: int, reach: float) -> ArrayMesh:
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
 	return mesh
+
+
+## Reflejos en pantalla del agua: solo en calidad alta (en baja, el agua refleja el cielo).
+func set_water_quality(high: bool) -> void:
+	for wm in water_mats:
+		(wm[0] as ShaderMaterial).set_shader_parameter("ssr_steps", wm[1] if high else 0)

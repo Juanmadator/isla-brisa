@@ -36,6 +36,7 @@ func build(isl: Island, zones: Array) -> void:
 	_flower_mat.set_shader_parameter("use_instance_tint", true)
 	_scatter_trees()
 	_scatter_rocks()
+	_scatter_lake_plants()
 
 
 func _is_clear(p: Vector2, extra := 0.0) -> bool:
@@ -448,6 +449,172 @@ func _scatter_rocks() -> void:
 	var rock_mat := _tinted(Color(0.9, 0.86, 0.76), 0.0, "stone")
 	for v in 4:
 		_multimesh(meshes[v], rock_mat, xf[v], tints[v])
+
+
+# --- Plantas del lago ---------------------------------------------------------
+
+## Hoja de nenúfar de radio 1: disco de borde ondulado, con la muesca hasta el centro y los
+## bordes algo levantados (como una hoja de verdad, no un plato).
+static func lily_pad_mesh() -> ArrayMesh:
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var segs := 28
+	var notch := 0.42
+	var c := Vector3(0, 0.0, 0)
+	var prev := Vector3.ZERO
+	var prev_n := Vector3.UP
+	for i in segs + 1:
+		var a := notch * 0.5 + (TAU - notch) * float(i) / segs
+		var r := 1.0 + sin(a * 7.0) * 0.025
+		var p := Vector3(cos(a) * r, 0.05 + sin(a * 3.0 + 1.0) * 0.02, sin(a) * r)
+		var n := Vector3(-cos(a) * 0.12, 1.0, -sin(a) * 0.12).normalized()
+		if i > 0:
+			MeshKit._add_tri(st, c, prev, p, Vector3.UP, prev_n, n)
+		prev = p
+		prev_n = n
+	return MeshKit.double_sided(st.commit())
+
+
+## Flor de nenúfar: dos coronas de pétalos abiertos en copa y el centro amarillo aparte.
+static func lily_flower_meshes() -> Array:
+	var petal := MeshKit.blob(1.0, 0.28, 0.0, 0, 12)
+	var parts := []
+	for ring in 2:
+		var n := 8 if ring == 0 else 6
+		var tilt := 0.45 if ring == 0 else 0.95
+		var size := Vector3(0.05, 0.05, 0.13) if ring == 0 else Vector3(0.045, 0.045, 0.1)
+		for k in n:
+			var yaw := TAU * k / n + ring * 0.4
+			var b := Basis(Vector3.UP, yaw) * Basis(Vector3.RIGHT, -tilt)
+			var off := b * Vector3(0, 0, size.z * 0.8)
+			parts.append([petal, Transform3D(b.scaled(size), off + Vector3(0, 0.03 + ring * 0.02, 0))])
+	var centre := MeshKit.blob(0.045, 0.6, 0.0, 0, 12)
+	return [_combine(parts), centre]
+
+
+## Mata de juncos: hojas finas y largas que se curvan hacia fuera, y alguna enea (tallo
+## con la mazorca marrón). Devuelve [hojas, mazorcas].
+static func reed_clump_meshes(seed_value: int) -> Array:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_value
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var blades := 11
+	for b in blades:
+		var yaw := r.randf() * TAU
+		var dir := Vector3(cos(yaw), 0, sin(yaw))
+		var side := Vector3(-dir.z, 0, dir.x)
+		var h := r.randf_range(0.9, 1.7)
+		var bend := r.randf_range(0.15, 0.45)
+		var w := r.randf_range(0.035, 0.06)
+		var base := dir * r.randf_range(0.0, 0.18)
+		var segs := 5
+		var prev_l := Vector3.ZERO
+		var prev_r := Vector3.ZERO
+		for i in segs + 1:
+			var t := float(i) / segs
+			var centre := base + dir * bend * t * t + Vector3.UP * h * t
+			var half := w * (1.0 - t * 0.92)
+			var l := centre - side * half
+			var rr := centre + side * half
+			var n := (Vector3.UP * -bend * 2.0 * t + dir * h).normalized().lerp(Vector3.UP, 0.3).normalized()
+			if i > 0:
+				MeshKit._add_tri(st, prev_l, prev_r, rr, n, n, n)
+				MeshKit._add_tri(st, prev_l, rr, l, n, n, n)
+			prev_l = l
+			prev_r = rr
+	var leaves := MeshKit.double_sided(st.commit())
+	var heads := []
+	var stem := MeshKit.cylinder(0.012, 0.016, 1.0, 5)
+	var head := MeshKit.capsule(0.035, 0.22)
+	for k in r.randi_range(1, 3):
+		var yaw := r.randf() * TAU
+		var p := Vector3(cos(yaw), 0, sin(yaw)) * r.randf_range(0.0, 0.12)
+		var h := r.randf_range(1.4, 1.9)
+		heads.append([stem, Transform3D(Basis().scaled(Vector3(1, h, 1)), p + Vector3.UP * h * 0.5)])
+		heads.append([head, Transform3D(Basis(), p + Vector3.UP * (h + 0.06))])
+	return [leaves, _combine(heads)]
+
+
+func _scatter_lake_plants() -> void:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 515
+	var y := Island.LAKE_LEVEL + 0.09
+	# Nenúfares en corros, lejos del islote y del centro (donde más se refleja el cielo).
+	var pads := []
+	var pad_tints := []
+	var flowers := []
+	var flower_tints := []
+	var corros := 0
+	while corros < 16:
+		var a := rng.randf() * TAU
+		var c := Island.LAKE + Vector2(cos(a), sin(a)) * rng.randf_range(24.0, 50.0)
+		if c.distance_to(Island.LAKE_ISLET) < 10.0 or island.height_at(c.x, c.y) > Island.LAKE_LEVEL - 0.6:
+			continue
+		corros += 1
+		for k in rng.randi_range(4, 10):
+			var p := c + Vector2(rng.randfn(0.0, 1.4), rng.randfn(0.0, 1.4))
+			if island.height_at(p.x, p.y) > Island.LAKE_LEVEL - 0.3 or p.distance_to(Island.LAKE) > 54.0:
+				continue
+			var s := rng.randf_range(0.32, 0.62)
+			var basis := Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s, s))
+			pads.append(Transform3D(basis, Vector3(p.x, y + rng.randf() * 0.01, p.y)))
+			var g := rng.randf_range(0.85, 1.1)
+			pad_tints.append(Color(0.34 * g, 0.56 * g, 0.24 * g * rng.randf_range(0.9, 1.15)))
+			if rng.randf() < 0.18:
+				var fp := p + Vector2(rng.randf_range(-0.15, 0.15), rng.randf_range(-0.15, 0.15))
+				flowers.append(Transform3D(Basis(Vector3.UP, rng.randf() * TAU), Vector3(fp.x, y + 0.03, fp.y)))
+				flower_tints.append(Color(1.0, 0.93, 0.96) if rng.randf() < 0.6 else Color(1.0, 0.7, 0.82))
+	var pad_mat := _tinted(Color(1, 1, 1), 0.0)
+	pad_mat.set_shader_parameter("rim_amount", 0.0)
+	_multimesh(lily_pad_mesh(), pad_mat, pads, pad_tints, false)
+	var fl := lily_flower_meshes()
+	_multimesh(fl[0], _tinted(Color(1, 1, 1), 0.0), flowers, flower_tints, false)
+	var yellow := []
+	for t: Transform3D in flowers:
+		yellow.append(t.translated(Vector3(0, 0.05, 0)))
+	_multimesh(fl[1], MeshKit.mat(Color(1.0, 0.82, 0.25), 0.0, 0.25, Color(1.0, 0.75, 0.2)), yellow, [], false)
+	# Juncos y eneas donde el agua es muy poco profunda o justo en la orilla.
+	var reeds := [reed_clump_meshes(1), reed_clump_meshes(2)]
+	var rx := [[], []]
+	var rt := [[], []]
+	var hx := [[], []]
+	var tries := 0
+	var placed := 0
+	while placed < 140 and tries < 4000:
+		tries += 1
+		var a := rng.randf() * TAU
+		var p := Island.LAKE + Vector2(cos(a), sin(a)) * rng.randf_range(26.0, 56.0)
+		var h := island.height_at(p.x, p.y)
+		if h < Island.LAKE_LEVEL - 0.7 or h > Island.LAKE_LEVEL + 0.5:
+			continue
+		if not _is_clear(p, 1.0) or island.path_distance(p) < 2.5:
+			continue
+		# En matas de varias juntas, no repartidos uno a uno.
+		var n := rng.randi_range(2, 5)
+		for k in n:
+			var q := p + Vector2(rng.randfn(0.0, 0.7), rng.randfn(0.0, 0.7))
+			var qh := island.height_at(q.x, q.y)
+			if qh < Island.LAKE_LEVEL - 0.9 or qh > Island.LAKE_LEVEL + 0.7:
+				continue
+			var v := rng.randi() % 2
+			var s := rng.randf_range(0.75, 1.2)
+			var xf := Transform3D(Basis(Vector3.UP, rng.randf() * TAU).scaled(Vector3(s, s * rng.randf_range(0.85, 1.2), s)), Vector3(q.x, qh - 0.05, q.y))
+			rx[v].append(xf)
+			var g := rng.randf_range(0.85, 1.1)
+			rt[v].append(Color(0.45 * g, 0.62 * g, 0.3 * g))
+			if rng.randf() < 0.5:
+				hx[v].append(xf)
+			placed += 1
+	var reed_mat := _tinted(Color(1, 1, 1), 3.0)
+	reed_mat.set_shader_parameter("rim_amount", 0.0)
+	var head_mat := _tinted(Color(0.42, 0.27, 0.16), 3.0)
+	for v in 2:
+		_multimesh(reeds[v][0], reed_mat, rx[v], rt[v], true)
+		var ht := []
+		for _i in hx[v].size():
+			ht.append(Color(1, 1, 1))
+		_multimesh(reeds[v][1], head_mat, hx[v], ht, true)
 
 
 # --- Hierba por trozos ---------------------------------------------------------

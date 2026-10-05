@@ -14,6 +14,7 @@ uniform float cloud_time = 0.0;
 uniform float cloud_cover = 0.5;
 
 #include "res://shaders/noise.gdshaderinc"
+#include "res://shaders/sky_common.gdshaderinc"
 
 float fbm(vec2 p) {
 	float v = 0.0;
@@ -29,15 +30,12 @@ float fbm(vec2 p) {
 void sky() {
 	vec3 dir = EYEDIR;
 	float y = dir.y;
-	vec3 col = mix(horizon_color, top_color, smoothstep(-0.02, 0.55, y));
-	// Bajo el horizonte: un poco más oscuro (el mar lejano se funde con la niebla).
-	col = mix(col, horizon_color * 0.92, smoothstep(0.0, -0.08, y));
-
 	vec3 sd = normalize(sun_vec);
 	float sun_dot = dot(dir, sd);
 	float sun_up = smoothstep(-0.12, 0.05, sd.y);
-	// El halo del sol tiñe el horizonte al amanecer y al atardecer.
-	col += sun_color * pow(max(sun_dot, 0.0), 6.0) * 0.25 * sun_up;
+	// Degradado, halo del sol y franjas del amanecer/atardecer (lo mismo que refleja el agua).
+	vec3 col = sky_gradient(dir, top_color, horizon_color, sun_color, sd);
+	float low = smoothstep(0.42, 0.06, sd.y) * smoothstep(-0.3, -0.04, sd.y);
 
 	if (!AT_CUBEMAP_PASS) {
 		float disk = smoothstep(0.9988, 0.9992, sun_dot) * sun_up;
@@ -74,6 +72,9 @@ void sky() {
 			float rim = smoothstep(thr + 0.035, thr + 0.0, n) * cloud;
 			vec3 cc = mix(cloud_light, cloud_shade, shade * 0.85);
 			cc += sun_color * rim * 0.25 * sun_up;
+			// Con el sol bajo, las nubes de su lado se encienden por debajo (naranja/dorado).
+			float toward = pow(max(dot(normalize(dir.xz + vec2(1e-5)), normalize(sd.xz + vec2(1e-5))), 0.0), 2.0);
+			cc = mix(cc, cc * vec3(1.15, 0.85, 0.6) + vec3(0.25, 0.1, 0.0), toward * low * (1.0 - shade * 0.5) * 0.7);
 			float fade = smoothstep(0.0, 0.12, y);
 			col = mix(col, cc, cloud * fade * 0.96);
 		}

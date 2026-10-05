@@ -65,6 +65,10 @@ func _ready() -> void:
 	await _view(isl.ground(Vector2(170, 30), 3), world.places.anchor("faro_cliff"), "cliff")
 	await _view(world.places.anchor("penon") + Vector3(8, 3, -4), world.places.anchor("faro_islet"), "penon")
 	await _view(isl.ground(Vector2(-100, -20), 8), isl.ground(Vector2(-150, -48), 0), "lake")
+	var ld := Vector2(-0.35, 1.0).normalized()
+	var shore := Island.LAKE + ld * 50.0
+	var sh := maxf(isl.height_at(shore.x, shore.y), Island.LAKE_LEVEL) + 1.7
+	await _view(Vector3(shore.x, sh, shore.y), Vector3(Island.LAKE.x, Island.LAKE_LEVEL + 1.0, Island.LAKE.y) - Vector3(ld.x, 0, ld.y) * 10.0, "lakeshore")
 	var fm: Farm = world.places.farm
 	await _view(fm.world_at(-4, 30, 9.0), fm.world_at(2, -4, 2.0), "farm")
 	await _view(fm.world_at(12, 18, 3.0), fm.world_at(24, 4, 0.5), "pasture")
@@ -91,6 +95,9 @@ func _ready() -> void:
 	var gm := world.places.anchor("gema")
 	await _view(gm + Vector3(-5, 2.6, 7), gm + Vector3(3, 1.0, -3), "camp")
 	await _view(Vector3(0, 380, 420), Vector3(0, 0, 0), "aerial")
+	# Hacia donde se pone el sol, desde la playa: estela del sol en el mar.
+	var sp := world.places.anchor("spawn")
+	await _view(sp + Vector3(-6, 2.5, 4), sp + Vector3(-200, -2, 76), "seaward")
 	await _view(isl.ground(Vector2(10, 150), 1.6), isl.ground(Vector2(14, 120), 1.5), "ground")
 	await _lineup()
 	await _poses()

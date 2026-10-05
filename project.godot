@@ -73,6 +73,22 @@ cloud_shadow={
 "type": "float",
 "value": 0.0
 }
+sky_top={
+"type": "color",
+"value": Color(0.2, 0.5, 0.94, 1)
+}
+sky_horizon={
+"type": "color",
+"value": Color(0.7, 0.87, 0.99, 1)
+}
+sky_sun={
+"type": "color",
+"value": Color(1, 0.98, 0.9, 1)
+}
+sky_sun_dir={
+"type": "vec3",
+"value": Vector3(0.3, 0.8, 0.2)
+}
 cloud_offset={
 "type": "vec2",
 "value": Vector2(0, 0)
