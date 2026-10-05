@@ -96,14 +96,10 @@ func build(s: Dictionary) -> void:
 	hips.add_child(torso)
 	var shirt: Color = spec["shirt"]
 	var o := 0.022
-	# Torso con faldón de túnica
-	# Perfil redondeado: bajo acampanado (túnica) o recto, cintura y hombros curvos.
+	# Torso con faldón de túnica: de una pieza, más ancho que profundo, con el pecho algo
+	# adelantado, hombros caídos y (en la túnica) pliegues en el bajo.
 	var hem := 0.25 * g if spec["dress"] else 0.18 * g
-	var prof := PackedVector2Array([
-		Vector2(0.0, -0.16), Vector2(hem, -0.16), Vector2(lerpf(hem, 0.2 * g, 0.45), -0.07), Vector2(0.195 * g, 0.04),
-		Vector2(0.178 * g, 0.17), Vector2(0.172 * g, 0.29), Vector2(0.158 * g, 0.38), Vector2(0.125 * g, 0.445),
-		Vector2(0.075, 0.485), Vector2(0.0, 0.5)])
-	MeshKit.part(torso, MeshKit.lathe(prof, 18), MeshKit.surface_mat(shirt, "cloth", 0.06), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 0.84))
+	MeshKit.part(torso, _torso_mesh(g, hem, spec["dress"]), MeshKit.surface_mat(shirt, "cloth", 0.06))
 	# Dobladillo un poco más oscuro.
 	if spec["dress"]:
 		MeshKit.part(torso, MeshKit.lathe(PackedVector2Array([Vector2(hem * 1.01, -0.165), Vector2(hem * 0.985, -0.125), Vector2(0.0, -0.125)]), 18), MeshKit.mat(shirt.darkened(0.15), 0.0), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 0.84))
@@ -123,7 +119,11 @@ func build(s: Dictionary) -> void:
 	var skin: Color = spec["skin"]
 	MeshKit.part(head, MeshKit.capsule(0.06, 0.16), MeshKit.mat(skin, 0.0), Vector3(0, 0.02, 0))
 	MeshKit.part(head, MeshKit.blob(0.25, 0.96, 0.0, 0, 14), MeshKit.mat(skin, o), Vector3(0, 0.25, 0))
-	MeshKit.part(head, MeshKit.sphere(0.04, 6), MeshKit.mat(skin.darkened(0.08), 0.0), Vector3(0, 0.22, -0.25))
+	# Nariz algo alargada y orejas a los lados (el pelo largo las tapa).
+	MeshKit.part(head, MeshKit.blob(0.036, 1.2, 0.0, 0, 10), MeshKit.mat(skin.darkened(0.06), 0.0), Vector3(0, 0.212, -0.247), Vector3(-12, 0, 0), Vector3(0.95, 1.0, 0.85))
+	for sx: float in [-1.0, 1.0]:
+		MeshKit.part(head, MeshKit.blob(0.056, 1.25, 0.0, 0, 10), MeshKit.mat(skin, 0.0), Vector3(sx * 0.243, 0.245, 0.02), Vector3(0, sx * 15.0, 0), Vector3(0.5, 1.0, 0.85))
+		MeshKit.part(head, MeshKit.blob(0.03, 1.2, 0.0, 0, 8), MeshKit.mat(skin.darkened(0.14), 0.0), Vector3(sx * 0.262, 0.245, 0.012), Vector3(0, sx * 15.0, 0), Vector3(0.3, 1.0, 0.65))
 	var iris_col: Color = spec["eye_color"]
 	var brow_col: Color = (spec["hair"] as Color).darkened(0.25)
 	for sx: float in [-1.0, 1.0]:
@@ -193,10 +193,60 @@ func build(s: Dictionary) -> void:
 		_ang[k] = 0.0
 
 
+## Tronco del personaje (en caché por complexión y tipo de prenda).
+static var _torso_cache := {}
+
+
+static func _torso_mesh(g: float, hem: float, dress: bool) -> ArrayMesh:
+	var key := "%.3f|%.3f|%s" % [g, hem, dress]
+	if _torso_cache.has(key):
+		return _torso_cache[key]
+	var skirt := lerpf(hem, 0.2 * g, 0.45)
+	var secs := [
+		[Vector3(0, -0.168, 0), 0.02, 0.02], [Vector3(0, -0.166, 0), hem * 0.96, hem * 0.83], [Vector3(0, -0.14, 0), hem, hem * 0.86],
+		[Vector3(0, -0.07, 0), skirt, skirt * 0.86], [Vector3(0, 0.04, 0), 0.19 * g, 0.163 * g], [Vector3(0, 0.17, -0.008), 0.178 * g, 0.152 * g],
+		[Vector3(0, 0.29, -0.014), 0.178 * g, 0.15 * g], [Vector3(0, 0.38, -0.004), 0.168 * g, 0.132 * g], [Vector3(0, 0.442, 0.0), 0.128 * g, 0.104 * g],
+		[Vector3(0, 0.485, 0.0), 0.075, 0.07], [Vector3(0, 0.5, 0.0), 0.02, 0.02]]
+	# Pliegues: ondas en el bajo de la túnica que se pierden hacia la cintura.
+	var folds := func(u: float, v: float) -> float:
+		var k := clampf(1.0 - u / 0.3, 0.0, 1.0)
+		return 1.0 + sin(v * TAU * 7.0 + 0.6) * 0.035 * k * k * (1.0 if dress else 0.4)
+	var mesh := MeshKit.loft(secs, 24, 3, folds)
+	_torso_cache[key] = mesh
+	return mesh
+
+
+## Mechones sueltos: blobs alargados entre `a` y `b` (posiciones en la cabeza) que caen con
+## inclinaciones algo distintas; rompen el "casco" de pelo liso.
+func _locks(h: Node3D, m: Material, n: int, a: Vector3, b: Vector3, size: float, stretch: float, tilt_x: float, seed_value: int) -> void:
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_value
+	for i in n:
+		var t := (i + 0.5) / n
+		var p := a.lerp(b, t)
+		var side := p.x
+		var rot := Vector3(tilt_x + r.randf_range(-8, 8), 0, -side * 90.0 + r.randf_range(-10, 10))
+		MeshKit.part(h, MeshKit.blob(size * r.randf_range(0.85, 1.15), stretch, 0.08, i + seed_value, 8), m, p, rot, Vector3(1.0, 1.0, 0.55))
+
+
 func _build_hair(h: Node3D, o: float) -> void:
 	var hc: Color = spec["hair"]
 	var m := MeshKit.surface_mat(hc, "hair", 0.08)
-	match spec["hair_style"]:
+	var hs: String = spec["hair_style"]
+	var sd := int(hc.r * 97.0 + hc.g * 31.0)
+	# Flequillo de mechones sobre la frente (los sombreros que tapan la frente lo esconden).
+	if hs in ["bob", "long", "pony", "pigtails", "bun"]:
+		_locks(h, m, 5, Vector3(-0.15, 0.445, -0.205), Vector3(0.15, 0.445, -0.205), 0.062, 1.25, -38.0, sd)
+	elif hs == "short":
+		_locks(h, m, 4, Vector3(-0.12, 0.47, -0.17), Vector3(0.12, 0.47, -0.17), 0.05, 1.1, -45.0, sd)
+		# Puntas en la coronilla.
+		for i in 6:
+			var a := TAU * i / 6.0
+			MeshKit.part(h, MeshKit.blob(0.06, 1.6, 0.1, i + sd, 8), m, Vector3(cos(a) * 0.1, 0.55, 0.06 + sin(a) * 0.1), Vector3(-25 + sin(a) * 20.0, 0, -cos(a) * 25.0), Vector3(1.0, 1.0, 0.7))
+	if hs == "long":
+		# Mechones que caen por la espalda.
+		_locks(h, m, 5, Vector3(-0.17, 0.12, 0.17), Vector3(0.17, 0.12, 0.17), 0.075, 2.0, 10.0, sd + 5)
+	match hs:
 		"bob":
 			MeshKit.part(h, MeshKit.blob(0.275, 0.95, 0.06, 4, 12), m, Vector3(0, 0.3, 0.035))
 			MeshKit.part(h, MeshKit.blob(0.2, 0.55, 0.1, 5, 9), m, Vector3(0, 0.44, -0.12), Vector3(-20, 0, 0))

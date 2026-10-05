@@ -249,9 +249,14 @@ static func build_model(pet_kind: String, colors: Array) -> Node3D:
 		"dog", "fox", "cat":
 			var fox := pet_kind == "fox"
 			var cat := pet_kind == "cat"
-			var bl := 0.55 if not cat else 0.5
-			MeshKit.part(body_n, MeshKit.capsule(0.17, bl), m, Vector3(0, 0.36, 0.02), Vector3(90, 0, 0))
-			MeshKit.part(body_n, MeshKit.blob(0.14, 0.9, 0.0, 0, 10), ma, Vector3(0, 0.33, -0.16), Vector3.ZERO, Vector3(0.9, 1.0, 0.8))
+			# Cuerpo de una pieza: grupa, cintura recogida y pecho más hondo (el gato, más fino).
+			var w := 0.86 if cat else 1.0
+			var trunk := MeshKit.loft([
+				[Vector3(0, 0.41, 0.3), 0.04, 0.04], [Vector3(0, 0.4, 0.25), 0.13 * w, 0.13], [Vector3(0, 0.39, 0.13), 0.14 * w, 0.14],
+				[Vector3(0, 0.38, 0.0), 0.12 * w, 0.115], [Vector3(0, 0.36, -0.12), 0.15 * w, 0.16], [Vector3(0, 0.42, -0.21), 0.12 * w, 0.13],
+				[Vector3(0, 0.5, -0.25), 0.04, 0.04]], 16, 3)
+			MeshKit.part(body_n, trunk, m)
+			MeshKit.part(body_n, MeshKit.blob(0.12, 0.9, 0.0, 0, 10), ma, Vector3(0, 0.33, -0.15), Vector3.ZERO, Vector3(0.85 * w, 1.0, 0.8))
 			head_n.position = Vector3(0, 0.56, -0.26)
 			MeshKit.part(head_n, MeshKit.blob(0.16, 0.95, 0.0, 0, 12), m, Vector3.ZERO)
 			var snout_len := 0.11 if not cat else 0.05
@@ -270,13 +275,9 @@ static func build_model(pet_kind: String, colors: Array) -> Node3D:
 					MeshKit.part(ear, MeshKit.cone(0.06 if fox else 0.05, 0.14 if fox else 0.11, 6), m, Vector3(0, 0.04, 0), Vector3(0, 0, -sx * 12.0), Vector3(1.0, 1.0, 0.6))
 					MeshKit.part(ear, MeshKit.cone(0.032, 0.09, 6), MeshKit.mat(Color(1.0, 0.75, 0.75) if cat else Color(0.15, 0.1, 0.1)), Vector3(0, 0.035, -0.015), Vector3(0, 0, -sx * 12.0), Vector3(1.0, 1.0, 0.4))
 			for i in 4:
-				var leg := Node3D.new()
-				leg.name = "Leg%d" % i
 				var front := i < 2
-				leg.position = Vector3((-1.0 if i % 2 == 0 else 1.0) * 0.1, 0.3, -0.17 if front else 0.2)
-				body_n.add_child(leg)
-				MeshKit.part(leg, MeshKit.capsule(0.05, 0.3), m, Vector3(0, -0.13, 0))
-				MeshKit.part(leg, MeshKit.sphere(0.055, 8), ma if fox else m, Vector3(0, -0.27, -0.02), Vector3.ZERO, Vector3(1.0, 0.7, 1.2))
+				var paw: Color = Color(0.2, 0.15, 0.13) if fox else main
+				Animals._leg(body_n, i, Vector3((-1.0 if i % 2 == 0 else 1.0) * 0.085 * w, 0.32, -0.15 if front else 0.2), 0.032, 0.32, main, paw, not front, 0.05)
 			var tail_n := Node3D.new()
 			tail_n.name = "Tail"
 			tail_n.position = Vector3(0, 0.42, 0.3)
@@ -287,7 +288,9 @@ static func build_model(pet_kind: String, colors: Array) -> Node3D:
 			elif cat:
 				MeshKit.part(tail_n, MeshKit.capsule(0.035, 0.42), m, Vector3(0, 0.15, 0.08), Vector3(-25, 0, 0))
 			else:
-				MeshKit.part(tail_n, MeshKit.capsule(0.04, 0.26), m, Vector3(0, 0.1, 0.08), Vector3(-45, 0, 0))
+				# Desde la grupa hacia arriba y atrás.
+				tail_n.position = Vector3(0, 0.42, 0.26)
+				MeshKit.part(tail_n, MeshKit.capsule(0.038, 0.26), m, Vector3(0, 0.08, 0.08), Vector3(45, 0, 0))
 		"bunny":
 			MeshKit.part(body_n, MeshKit.blob(0.2, 0.9, 0.0, 0, 12), m, Vector3(0, 0.22, 0.04), Vector3.ZERO, Vector3(1.0, 1.0, 1.15))
 			head_n.position = Vector3(0, 0.38, -0.14)

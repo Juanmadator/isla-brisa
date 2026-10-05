@@ -423,6 +423,106 @@ static func param_surface(f: Callable, nu: int, nv: int, center := Vector3.ZERO,
 	return st.commit()
 
 
+## Cuerpo orgánico de una pieza: secciones elípticas [centro, radio en x, radio en el otro eje]
+## a lo largo de un camino en el plano YZ (cuerpos de animales con cuello y cabeza, troncos
+## de personaje). Entre secciones se interpola con Catmull-Rom, así que no quedan aristas, y
+## los extremos se cierran con un casquete redondeado. El otro eje de la sección es
+## X × tangente: con el camino hacia -Z apunta arriba; con el camino hacia +Y, hacia +Z.
+## `radial` (opcional): f(u, v) -> factor del radio (u a lo largo, v alrededor; pliegues, bultos).
+## `colorf` (opcional): f(punto) -> Color de vértice (manchas); usar con `vcol_mat`.
+static func loft(sections: Array, nv := 16, sub := 4, radial := Callable(), colorf := Callable()) -> ArrayMesh:
+	var n := sections.size()
+	var cs: Array[Vector3] = []
+	var rxs: Array[float] = []
+	var rys: Array[float] = []
+	var total := (n - 1) * sub
+	for i in total + 1:
+		var f := float(i) / sub
+		var k := mini(int(f), n - 2)
+		var s := f - k
+		var a0: Array = sections[maxi(k - 1, 0)]
+		var a1: Array = sections[k]
+		var a2: Array = sections[k + 1]
+		var a3: Array = sections[mini(k + 2, n - 1)]
+		cs.append((a1[0] as Vector3).cubic_interpolate(a2[0], a0[0], a3[0], s))
+		rxs.append(maxf(cubic_interpolate(a1[1], a2[1], a0[1], a3[1], s), 0.002))
+		rys.append(maxf(cubic_interpolate(a1[2], a2[2], a0[2], a3[2], s), 0.002))
+	var rings := cs.size()
+	var tans: Array[Vector3] = []
+	for i in rings:
+		tans.append((cs[mini(i + 1, rings - 1)] - cs[maxi(i - 1, 0)]).normalized())
+	var pts := []
+	for i in rings:
+		var x_ax := Vector3.RIGHT
+		var y_ax := x_ax.cross(tans[i]).normalized()
+		var row: Array[Vector3] = []
+		for j in nv:
+			var a := TAU * j / nv
+			var m := 1.0
+			if radial.is_valid():
+				m = radial.call(float(i) / (rings - 1), float(j) / nv)
+			row.append(cs[i] + x_ax * cos(a) * rxs[i] * m + y_ax * sin(a) * rys[i] * m)
+		pts.append(row)
+	var nrm := []
+	for i in rings:
+		var row: Array[Vector3] = []
+		for j in nv:
+			var du: Vector3 = pts[mini(i + 1, rings - 1)][j] - pts[maxi(i - 1, 0)][j]
+			var dv: Vector3 = pts[i][(j + 1) % nv] - pts[i][(j - 1 + nv) % nv]
+			var nn := du.cross(dv)
+			if nn.length_squared() < 1e-14:
+				nn = pts[i][j] - cs[i]
+			nn = nn.normalized()
+			if nn.dot(pts[i][j] - cs[i]) < 0.0:
+				nn = -nn
+			row.append(nn)
+		nrm.append(row)
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var col := func(p: Vector3) -> Color:
+		return colorf.call(p) if colorf.is_valid() else Color.WHITE
+	for i in rings - 1:
+		for j in nv:
+			var j1 := (j + 1) % nv
+			var a: Vector3 = pts[i][j]
+			var b: Vector3 = pts[i + 1][j]
+			var c: Vector3 = pts[i + 1][j1]
+			var d: Vector3 = pts[i][j1]
+			_add_tri_c(st, a, b, c, nrm[i][j], nrm[i + 1][j], nrm[i + 1][j1], col.call(a), col.call(b), col.call(c))
+			_add_tri_c(st, a, c, d, nrm[i][j], nrm[i + 1][j1], nrm[i][j1], col.call(a), col.call(c), col.call(d))
+	# Casquetes: abanico hasta un polo un poco por fuera de la primera y la última sección.
+	for e in 2:
+		var i := 0 if e == 0 else rings - 1
+		var out := -tans[i] if e == 0 else tans[i]
+		var pole := cs[i] + out * minf(rxs[i], rys[i]) * 0.55
+		for j in nv:
+			var j1 := (j + 1) % nv
+			_add_tri_c(st, pole, pts[i][j], pts[i][j1], out, (nrm[i][j] as Vector3).lerp(out, 0.5).normalized(), (nrm[i][j1] as Vector3).lerp(out, 0.5).normalized(), col.call(pole), col.call(pts[i][j]), col.call(pts[i][j1]))
+	return st.commit()
+
+
+static func _add_tri_c(st: SurfaceTool, a: Vector3, b: Vector3, c: Vector3, na: Vector3, nb: Vector3, nc: Vector3, ca: Color, cb: Color, cc: Color) -> void:
+	if ((b - a).cross(c - a).dot(na + nb + nc) > 0.0) == CLOCKWISE_FRONT:
+		var tv := b
+		b = c
+		c = tv
+		var tn := nb
+		nb = nc
+		nc = tn
+		var tc := cb
+		cb = cc
+		cc = tc
+	st.set_color(ca)
+	st.set_normal(na)
+	st.add_vertex(a)
+	st.set_color(cb)
+	st.set_normal(nb)
+	st.add_vertex(b)
+	st.set_color(cc)
+	st.set_normal(nc)
+	st.add_vertex(c)
+
+
 static func blob(radius: float, squash := 1.0, noise_amount := 0.0, seed_value := 0, segs := 18) -> ArrayMesh:
 	segs = maxi(segs, 12)
 	var key := "blob|%.3f|%.3f|%.3f|%d|%d" % [radius, squash, noise_amount, seed_value, segs]

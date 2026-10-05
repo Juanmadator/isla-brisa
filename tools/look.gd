@@ -100,6 +100,7 @@ func _ready() -> void:
 	await _view(sp + Vector3(-6, 2.5, 4), sp + Vector3(-200, -2, 76), "seaward")
 	await _view(isl.ground(Vector2(10, 150), 1.6), isl.ground(Vector2(14, 120), 1.5), "ground")
 	await _lineup()
+	await _animals()
 	await _poses()
 	get_tree().quit()
 
@@ -128,6 +129,31 @@ func _poses() -> void:
 		var mid := world.island.ground(base + Vector2(3.2, 0))
 		await _view(mid + Vector3(0, 1.3, 6.2), mid + Vector3(0, 0.9, 0), "poses_%d" % batch, 0.9)
 		holder.queue_free()
+
+
+## Animales de granja de cerca: de tres cuartos y uno de cada pastando.
+func _animals() -> void:
+	if not only.is_empty() and not "animals" in only and not "animals_graze" in only:
+		return
+	var base := Island.VILLAGE + Vector2(-6, 16)
+	var holder := Node3D.new()
+	add_child(holder)
+	var models := [Animals.cow(0), Animals.cow(1), Animals.donkey(), Animals.sheep(0), Animals.sheep(3), Animals.chicken(0), Animals.chicken(1),
+		Pet.build_model("dog", [Color(0.85, 0.62, 0.38), Color(1, 0.95, 0.88)]), Pet.build_model("fox", [Color(0.95, 0.5, 0.2), Color(1, 0.97, 0.92)]),
+		Pet.build_model("cat", [Color(0.45, 0.45, 0.5), Color(1, 1, 1)])]
+	var xs := [0.0, 2.2, 4.4, 6.0, 7.2, 8.2, 8.7, 3.6, 4.6, 5.5]
+	for i in models.size():
+		var m: Node3D = models[i]
+		holder.add_child(m)
+		m.position = world.island.ground(base + Vector2(xs[i], 2.2 if i >= 7 else 0.0))
+		m.rotation.y = deg_to_rad(130)
+	var mid := world.island.ground(base + Vector2(4.4, 0))
+	await _view(mid + Vector3(-0.5, 1.5, 5.2), mid + Vector3(0, 0.7, 0), "animals")
+	for i in models.size():
+		Animals.animate(models[i], 0.0, false, 1.0, 0.0)
+		(models[i].get_node("Body/Head") as Node3D).rotation.x = -float(models[i].get_meta("graze", 0.9))
+	await _view(mid + Vector3(-1.0, 1.7, 6.0), mid + Vector3(0, 0.7, 0), "animals_graze")
+	holder.queue_free()
 
 
 ## Lía y todos los vecinos en fila, de cara a la cámara.

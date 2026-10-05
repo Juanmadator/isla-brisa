@@ -176,7 +176,9 @@ float surface_pattern(vec3 p, vec3 n, inout vec3 c) {
 void fragment() {
 	vec3 c = albedo.rgb * inst_tint;
 	if (use_vertex_color) {
-		c *= COLOR.rgb;
+		// Los colores de vértice vienen en sRGB (como los de los materiales): pasarlos a lineal.
+		vec3 vc = COLOR.rgb;
+		c *= mix(pow((vc + 0.055) / 1.055, vec3(2.4)), vc / 12.92, lessThan(vc, vec3(0.04045)));
 	}
 	if (detail > 0.0) {
 		vec3 q = local_pos * detail_scale;
