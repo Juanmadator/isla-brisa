@@ -53,7 +53,8 @@ func _ready() -> void:
 	env.fog_depth_curve = 1.3
 	env.fog_density = 0.65
 	env.fog_sky_affect = 0.0
-	env.fog_aerial_perspective = 0.0
+	# Perspectiva aérea: lo lejano toma el color del cielo (profundidad, como en la realidad).
+	env.fog_aerial_perspective = 0.35
 	env.ssao_enabled = true
 	env.ssao_radius = 1.4
 	env.ssao_intensity = 1.6
@@ -61,6 +62,22 @@ func _ready() -> void:
 	env.ssao_detail = 0.4
 	env.ssao_light_affect = 0.0
 	env.ssao_ao_channel_affect = 0.0
+	# Luz rebotada en pantalla: los colores se contagian a lo que tienen cerca (hierba en las
+	# paredes, tejados en los aleros) y las sombras dejan de ser planas.
+	env.ssil_enabled = true
+	env.ssil_radius = 4.0
+	env.ssil_intensity = 0.9
+	env.ssil_sharpness = 0.98
+	env.ssil_normal_rejection = 1.0
+	# Bruma volumétrica muy ligera: rayos de sol entre los árboles y profundidad en el aire.
+	env.volumetric_fog_enabled = true
+	env.volumetric_fog_density = 0.0035
+	env.volumetric_fog_albedo = Color(0.95, 0.97, 1.0)
+	env.volumetric_fog_anisotropy = 0.65
+	env.volumetric_fog_length = 90.0
+	env.volumetric_fog_detail_spread = 1.5
+	env.volumetric_fog_sky_affect = 0.0
+	env.volumetric_fog_ambient_inject = 0.2
 	env.glow_enabled = true
 	env.glow_intensity = 0.5
 	env.glow_bloom = 0.02

@@ -517,6 +517,36 @@ static func bakery_front(root: Node3D, w: float, d: float) -> void:
 	_box(root, Vector3(0.7, 0.9, 0.06), Color(0.15, 0.18, 0.17), Vector3(-w * 0.18 + 1.25, 0.75, d * 0.5 + 0.9), Vector3(-12, 0, 0))
 
 
+## Guirnalda de banderines entre `a` y `b` (posiciones relativas al nodo que devuelve, que
+## queda en el origen). La cuerda cae en catenaria; cada banderín es un hijo de "Flags" que
+## se puede mecer con el viento.
+static func bunting(a: Vector3, b: Vector3, sag := 0.9) -> Node3D:
+	var root := Node3D.new()
+	var flags := Node3D.new()
+	flags.name = "Flags"
+	root.add_child(flags)
+	var cols := [Color(0.95, 0.35, 0.3), Color(1.0, 0.82, 0.3), Color(0.35, 0.65, 0.95), Color(0.5, 0.8, 0.45), Color(0.95, 0.55, 0.75), Color(0.98, 0.96, 0.9)]
+	var n := int(a.distance_to(b) / 0.7)
+	var prev := a
+	var tri := PackedVector2Array([Vector2(-0.18, 0), Vector2(0.18, 0), Vector2(0, -0.42)])
+	for i in range(1, n + 1):
+		var t := float(i) / n
+		var p := a.lerp(b, t) + Vector3.DOWN * sin(t * PI) * sag
+		var seg := _p(root, MeshKit.cylinder(0.008, 0.008, prev.distance_to(p), 4), Color(0.9, 0.88, 0.8), (prev + p) * 0.5)
+		seg.basis = Basis(Quaternion(Vector3.UP, (p - prev).normalized())) * Basis()
+		if i < n:
+			var f := Node3D.new()
+			f.position = p
+			var along := (b - a).normalized()
+			f.rotation.y = atan2(along.x, along.z) + PI * 0.5
+			flags.add_child(f)
+			var m := MeshKit.double_sided(MeshKit.extrude(tri, 0.01))
+			var fl := MeshKit.part(f, m, MeshKit.surface_mat(cols[i % cols.size()], "cloth", 0.0), Vector3(0, 0, -0.005), Vector3(-90, 0, 0))
+			fl.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+		prev = p
+	return root
+
+
 ## Tablón de anuncios con tejadillo y papeles clavados (encargos del día).
 static func noticeboard() -> Node3D:
 	var root := Node3D.new()

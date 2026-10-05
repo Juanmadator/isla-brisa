@@ -40,6 +40,8 @@ var pen_animals: Array = []
 var benches: Array = []
 ## Obstáculos que los vecinos rodean al pasear: [centro, radio].
 var obstacles: Array = []
+## Guirnaldas de banderines: nodos "Flags" cuyos hijos se mecen con el viento.
+var buntings: Array = []
 var windmill_hub: Node3D
 var flames: Array = []
 var race_rings: Array = []   # Vector3
@@ -198,6 +200,13 @@ func _build_village() -> void:
 		var lamp := Props.lamp_post()
 		_place(lamp["root"], lp, 0.0, 0.1)
 		lamps.append(lamp)
+	# Guirnaldas de banderines de farola a farola, cruzando la plaza.
+	for k in 3:
+		var la: Vector3 = (lamps[k]["root"] as Node3D).position + Vector3(0, 3.3, 0)
+		var lb: Vector3 = (lamps[k + 3]["root"] as Node3D).position + Vector3(0, 3.3, 0)
+		var bunt := Props.bunting(la, lb, 1.1)
+		add_child(bunt)
+		buntings.append(bunt.get_node("Flags"))
 	for k in 3:
 		var a := TAU * k / 3.0 + 1.2
 		var bp := v + Vector2(cos(a), sin(a)) * 6.0

@@ -36,6 +36,14 @@ func _ready() -> void:
 			world.sky.hour = float(a.substr(7))
 		if a.begins_with("--only="):
 			only = a.substr(7).split(",")
+		if a.begins_with("--nofx="):   # comparar sin efectos: --nofx=ssil,vol,aerial,ssao
+			var fx := a.substr(7).split(",")
+			var env := world.sky.env
+			env.ssil_enabled = env.ssil_enabled and not "ssil" in fx
+			env.volumetric_fog_enabled = env.volumetric_fog_enabled and not "vol" in fx
+			env.ssao_enabled = env.ssao_enabled and not "ssao" in fx
+			if "aerial" in fx:
+				env.fog_aerial_perspective = 0.0
 	world.sky.apply()
 	cam = Camera3D.new()
 	cam.fov = 62

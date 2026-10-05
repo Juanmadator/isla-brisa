@@ -1404,6 +1404,11 @@ func _update_world_life(dt: float) -> void:
 		var on := night > 0.4
 		glass.material_override = lamp["on"] if on else lamp["off"]
 		(lamp["light"] as OmniLight3D).visible = on
+	for bn in places.buntings:
+		var k := 0
+		for f in (bn as Node3D).get_children():
+			(f as Node3D).rotation.x = sin(_t * (2.0 + wind * 4.0) + k * 0.7) * (0.12 + wind * 0.45)
+			k += 1
 	for f in places.flames:
 		var fl: Node3D = f
 		fl.scale = Vector3(1.0, 1.0 + sin(_t * 9.0 + fl.position.x) * 0.12, 1.0)

@@ -64,6 +64,8 @@ func set_focus(p: Vector3) -> void:
 func set_quality(high: bool) -> void:
 	if sky and sky.env:
 		sky.env.ssao_enabled = high
+		sky.env.ssil_enabled = high
+		sky.env.volumetric_fog_enabled = high
 	var vp := get_viewport()
 	if vp:
 		vp.screen_space_aa = Viewport.SCREEN_SPACE_AA_SMAA if high else Viewport.SCREEN_SPACE_AA_FXAA
