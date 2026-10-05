@@ -220,8 +220,8 @@ func _multimesh(mesh: Mesh, material: Material, xforms: Array, tints: Array, sha
 	return mmi
 
 
-static func _tinted(color: Color, sway: float) -> ShaderMaterial:
-	var m: ShaderMaterial = MeshKit.mat(color, 0.0).duplicate()
+static func _tinted(color: Color, sway: float, surface := "") -> ShaderMaterial:
+	var m: ShaderMaterial = MeshKit.surface_mat(color, surface).duplicate()
 	m.set_shader_parameter("use_instance_tint", true)
 	m.set_shader_parameter("sway", sway)
 	return m
@@ -348,13 +348,13 @@ func _scatter_trees() -> void:
 		x += cell
 	for v in 3:
 		_multimesh(canopies[v], null, canopy_x[v], canopy_t[v])
-	_multimesh(trunk_mesh(5.0, 0.32), _tinted(Color(0.55, 0.38, 0.26), 0.3), trunk_x, [])
+	_multimesh(trunk_mesh(5.0, 0.32), _tinted(Color(0.55, 0.38, 0.26), 0.3, "bark"), trunk_x, [])
 	_multimesh(_leafy(pine_leafy_mesh(), 0.6, true), null, pine_x, pine_t)
-	_multimesh(trunk_mesh(2.0, 0.22), _tinted(Color(0.5, 0.36, 0.26), 0.0), pine_trunk_x, [])
+	_multimesh(trunk_mesh(2.0, 0.22), _tinted(Color(0.5, 0.36, 0.26), 0.0, "bark"), pine_trunk_x, [])
 	var bush := _leafy(leafy_mesh([[Vector3(0, 0.1, 0), 1.0, 0.8], [Vector3(0.55, -0.05, 0.2), 0.6, 0.8], [Vector3(-0.45, 0.0, -0.3), 0.65, 0.8]], 0.45, 3.2, 7), 0.4)
 	_multimesh(bush, null, bush_x, bush_t)
 	if not palm_x.is_empty():
-		_multimesh(palm_trunk_mesh(), _tinted(Color(0.72, 0.55, 0.36), 0.5), palm_x, [])
+		_multimesh(palm_trunk_mesh(), _tinted(Color(0.72, 0.55, 0.36), 0.5, "bark"), palm_x, [])
 		_multimesh(palm_fronds_mesh(), _tinted(Color(1, 1, 1), 1.2), palm_x, palm_t)
 
 
@@ -364,7 +364,7 @@ func _scatter_rocks() -> void:
 	var meshes := []
 	var shapes := []
 	for v in 4:
-		var m := MeshKit.blob(1.0, 0.72, 0.28, 40 + v, 8)
+		var m := MeshKit.rock(40 + v)
 		meshes.append(m)
 		shapes.append(m.create_convex_shape(true, true))
 	var xf := [[], [], [], []]
@@ -408,7 +408,7 @@ func _scatter_rocks() -> void:
 		cs.scale = Vector3.ONE * s
 		body.add_child(cs)
 		count += 1
-	var rock_mat := _tinted(Color(0.9, 0.86, 0.76), 0.0)
+	var rock_mat := _tinted(Color(0.9, 0.86, 0.76), 0.0, "stone")
 	for v in 4:
 		_multimesh(meshes[v], rock_mat, xf[v], tints[v])
 

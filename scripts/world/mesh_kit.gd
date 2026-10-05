@@ -50,6 +50,26 @@ static func vcol_mat(_outline := 0.02, rim := 0.22) -> ShaderMaterial:
 	return m
 
 
+const SURFACES := {"wood": 1, "stone": 2, "plaster": 3, "tile": 4, "bark": 5, "thatch": 6}
+
+
+## Material con el dibujo y el relieve de un material ("wood", "stone", "plaster", "tile",
+## "bark") y los cantos aclarados. Sin `surface`, es el material normal.
+static func surface_mat(color: Color, surface: String, edge := 0.12, scale := 1.0) -> ShaderMaterial:
+	if surface == "" or not SURFACES.has(surface):
+		return mat(color)
+	var key := "surf|%s|%s|%.2f|%.2f" % [color.to_html(), surface, edge, scale]
+	if _mat_cache.has(key):
+		return _mat_cache[key]
+	var m: ShaderMaterial = mat(color).duplicate()
+	m.set_shader_parameter("surface", SURFACES[surface])
+	m.set_shader_parameter("edge_highlight", edge)
+	m.set_shader_parameter("surface_scale", scale)
+	m.set_shader_parameter("detail", 0.035)
+	_mat_cache[key] = m
+	return m
+
+
 ## Material sin contorno que de noche se vuelve luz cálida (ventanas).
 static func night_glow_mat(color: Color, energy: float) -> ShaderMaterial:
 	var key := "night|%s|%.2f" % [color.to_html(), energy]
@@ -112,6 +132,11 @@ static func _axis_samples(half: float, r: float, segs: int) -> PackedFloat32Arra
 
 
 static func rounded_box(size: Vector3, radius := 0.08, segs := 3) -> ArrayMesh:
+	# Bisel generoso y proporcional al tamaño: los cantos finos e iguales parecen de baja
+	# poligonización; los redondeados recogen la luz y parecen hechos a mano.
+	var min_dim := minf(size.x, minf(size.y, size.z))
+	radius = maxf(radius, minf(min_dim * 0.16, 0.14))
+	segs = maxi(segs, 3)
 	var key := "rbox|%s|%.3f|%d" % [size, radius, segs]
 	if _mesh_cache.has(key):
 		return _mesh_cache[key]
@@ -153,6 +178,151 @@ static func rounded_box(size: Vector3, radius := 0.08, segs := 3) -> ArrayMesh:
 					_add_tri(st, a[0], b[0], c[0], a[1], b[1], c[1])
 					_add_tri(st, a[0], c[0], d[0], a[1], c[1], d[1])
 	var mesh := st.commit()
+	_mesh_cache[key] = mesh
+	return mesh
+
+
+## Caja "hecha a mano": caja redondeada subdividida cuyas caras se abomban un poco con ruido
+## (`wobble` en metros) y que se estrecha arriba (`taper`). Las líneas dejan de ser de regla.
+static func soft_box(size: Vector3, radius := 0.1, wobble := 0.025, taper := 0.02, seed_value := 0) -> ArrayMesh:
+	var key := "sbox|%s|%.3f|%.3f|%.3f|%d" % [size, radius, wobble, taper, seed_value]
+	if _mesh_cache.has(key):
+		return _mesh_cache[key]
+	var half := size * 0.5
+	var r := minf(maxf(radius, minf(minf(size.x, minf(size.y, size.z)) * 0.16, 0.14)), minf(half.x, minf(half.y, half.z)))
+	var inner := Vector3(half.x - r, half.y - r, half.z - r)
+	var samples := []
+	for ax in 3:
+		var base := _axis_samples(half[ax], r, 3)
+		# Más cortes en las caras planas para que se puedan abombar.
+		var dense := PackedFloat32Array()
+		for i in base.size():
+			dense.append(base[i])
+			if i + 1 < base.size():
+				var gap: float = base[i + 1] - base[i]
+				var n := int(gap / 0.45)
+				for k in range(1, n):
+					dense.append(base[i] + gap * k / n)
+		samples.append(dense)
+	var noise := FastNoiseLite.new()
+	noise.seed = seed_value
+	noise.frequency = 0.35
+	var st := SurfaceTool.new()
+	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var shape := func(p: Vector3) -> Vector3:
+		var q := p.clamp(-inner, inner)
+		var nrm := (p - q).normalized()
+		var out := q + nrm * r
+		# Abombado suave (más en el centro de las caras que en los cantos) y estrechamiento.
+		out += nrm * noise.get_noise_3dv(out * 1.0) * wobble
+		var k := 1.0 - taper * clampf((out.y + half.y) / maxf(size.y, 0.001), 0.0, 1.0)
+		out.x *= k
+		out.z *= k
+		return out
+	for axis in 3:
+		var u := (axis + 1) % 3
+		var v := (axis + 2) % 3
+		for sgn: float in [-1.0, 1.0]:
+			var su: PackedFloat32Array = samples[u]
+			var sv: PackedFloat32Array = samples[v]
+			for i in su.size() - 1:
+				for j in sv.size() - 1:
+					var corners := []
+					for c in [[i, j], [i + 1, j], [i + 1, j + 1], [i, j + 1]]:
+						var p := Vector3.ZERO
+						p[axis] = sgn * half[axis]
+						p[u] = su[c[0]]
+						p[v] = sv[c[1]]
+						corners.append(shape.call(p))
+					var face: Vector3 = ((corners[1] as Vector3) - corners[0]).cross((corners[2] as Vector3) - corners[0])
+					var want := Vector3.ZERO
+					want[axis] = sgn
+					if face.length_squared() < 1e-12:
+						continue
+					# Sin normales propias: al indexar se unen los vértices de caras vecinas y
+					# generate_normals() suaviza todo el contorno sin costuras.
+					for tri in [[corners[0], corners[1], corners[2]], [corners[0], corners[2], corners[3]]]:
+						var ta: Vector3 = tri[0]
+						var tb: Vector3 = tri[1]
+						var tc: Vector3 = tri[2]
+						if ((tb - ta).cross(tc - ta).dot(want) > 0.0) == CLOCKWISE_FRONT:
+							var tmp := tb
+							tb = tc
+							tc = tmp
+						st.add_vertex(ta)
+						st.add_vertex(tb)
+						st.add_vertex(tc)
+	st.index()
+	st.generate_normals()
+	var mesh := st.commit()
+	_mesh_cache[key] = mesh
+	return mesh
+
+
+## Fuste de columna clásica: acanaladuras, éntasis (algo más ancha a un tercio de la altura),
+## se estrecha arriba y tiene desconchones aquí y allá. Base en y = 0, abierta por los extremos.
+static func column(height: float, radius: float, flutes := 16, seed_value := 0) -> ArrayMesh:
+	var key := "column|%.2f|%.2f|%d|%d" % [height, radius, flutes, seed_value]
+	if _mesh_cache.has(key):
+		return _mesh_cache[key]
+	var noise := FastNoiseLite.new()
+	noise.seed = seed_value
+	noise.frequency = 1.6
+	var f := func(u: float, v: float) -> Vector3:
+		var ang := v * TAU
+		var dir := Vector2(cos(ang), sin(ang))
+		var r := radius * (1.0 - 0.12 * u + 0.035 * sin(u * PI))
+		var groove := pow(maxf(cos(ang * flutes), 0.0), 2.0)
+		r -= radius * 0.06 * groove
+		# Desconchones: el ruido "muerde" la piedra en algunos sitios.
+		var chip := noise.get_noise_3d(dir.x * 1.3, u * height * 0.5, dir.y * 1.3)
+		if chip > 0.35:
+			r -= radius * (chip - 0.35) * 0.35
+		return Vector3(dir.x * r, u * height, dir.y * r)
+	var mesh := param_surface(f, int(height * 2.0) + 6, flutes * 4, Vector3(0, height * 0.5, 0))
+	_mesh_cache[key] = mesh
+	return mesh
+
+
+## Pilar de roca de una pieza: se estrecha hacia arriba, tiene repisas de estratos cada
+## `ledge` metros, ruido 3D y caras talladas. Base en y = 0.
+static func spire(height: float, r_bottom: float, r_top: float, seed_value := 0, ledge := 2.2) -> ArrayMesh:
+	var key := "spire|%.2f|%.2f|%.2f|%d|%.2f" % [height, r_bottom, r_top, seed_value, ledge]
+	if _mesh_cache.has(key):
+		return _mesh_cache[key]
+	var noise := FastNoiseLite.new()
+	noise.seed = seed_value
+	noise.frequency = 0.22
+	noise.fractal_octaves = 3
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_value + 5
+	var cuts := []
+	for k in 9:
+		var a := r.randf() * TAU
+		cuts.append([Vector2(cos(a), sin(a)), r.randf_range(0.0, height), r.randf_range(0.82, 0.95)])
+	var f := func(u: float, v: float) -> Vector3:
+		var y := u * height
+		var t := u
+		var ang := v * TAU
+		var dir := Vector2(cos(ang), sin(ang))
+		var rad := lerpf(r_bottom, r_top, t)
+		# Repisas: cada estrato sobresale un poco por abajo y se mete por arriba.
+		var lf := fposmod(y / ledge + noise.get_noise_2d(ang * 3.0, 0.0) * 0.4, 1.0)
+		rad *= 1.0 + (0.5 - lf) * 0.16
+		rad *= 1.0 + noise.get_noise_3d(dir.x * 3.0, y * 0.35, dir.y * 3.0) * 0.22
+		# Caras talladas: planos verticales que recortan el contorno a ciertas alturas.
+		for c in cuts:
+			var w := 1.0 - smoothstep(0.0, 3.0, absf(y - float(c[1])))
+			var d: float = dir.dot(c[0])
+			if d > c[2]:
+				rad *= lerpf(1.0, c[2] / d, w)
+		if u >= 0.999:
+			rad *= 0.6
+		var top := 0.0
+		if u >= 0.999:
+			top = 0.35
+		return Vector3(dir.x * rad, y + top, dir.y * rad)
+	var mesh := param_surface(f, int(height * 2.5) + 8, 36, Vector3(0, height * 0.5, 0))
 	_mesh_cache[key] = mesh
 	return mesh
 
@@ -202,6 +372,7 @@ static func param_surface(f: Callable, nu: int, nv: int, center := Vector3.ZERO,
 
 
 static func blob(radius: float, squash := 1.0, noise_amount := 0.0, seed_value := 0, segs := 18) -> ArrayMesh:
+	segs = maxi(segs, 12)
 	var key := "blob|%.3f|%.3f|%.3f|%d|%d" % [radius, squash, noise_amount, seed_value, segs]
 	if _mesh_cache.has(key):
 		return _mesh_cache[key]
@@ -212,6 +383,40 @@ static func blob(radius: float, squash := 1.0, noise_amount := 0.0, seed_value :
 		var dir := Vector3(sin(th) * cos(ph), cos(th), sin(th) * sin(ph))
 		var nz := 1.0 + noise_amount * (sin(dir.x * 3.1 + s) * sin(dir.y * 2.7 + s * 0.5) + 0.6 * sin(dir.z * 4.3 + s * 1.3))
 		return Vector3(dir.x * radius * nz, dir.y * radius * squash * nz, dir.z * radius * nz)
+	var mesh := param_surface(f, segs, segs * 2)
+	_mesh_cache[key] = mesh
+	return mesh
+
+
+## Roca natural de radio ~1 (base aplastada): ruido 3D en varias octavas y unos cuantos
+## planos de corte que dejan caras talladas, como una piedra partida. `flat` aplasta en vertical.
+static func rock(seed_value: int, flat := 0.72, segs := 22) -> ArrayMesh:
+	var key := "rock|%d|%.2f|%d" % [seed_value, flat, segs]
+	if _mesh_cache.has(key):
+		return _mesh_cache[key]
+	var noise := FastNoiseLite.new()
+	noise.seed = seed_value
+	noise.frequency = 1.0
+	noise.fractal_octaves = 3
+	var r := RandomNumberGenerator.new()
+	r.seed = seed_value * 7 + 3
+	var cuts := []
+	for k in 7:
+		var d := Vector3(r.randf_range(-1.0, 1.0), r.randf_range(-0.2, 1.0), r.randf_range(-1.0, 1.0)).normalized()
+		cuts.append([d, r.randf_range(0.66, 0.9)])
+	var f := func(u: float, v: float) -> Vector3:
+		var th := u * PI
+		var ph := v * TAU
+		var dir := Vector3(sin(th) * cos(ph), cos(th), sin(th) * sin(ph))
+		var p := dir * (1.0 + noise.get_noise_3dv(dir * 1.4) * 0.3)
+		for c in cuts:
+			var dd: float = p.dot(c[0])
+			if dd > c[1]:
+				p -= (c[0] as Vector3) * (dd - c[1])
+		p.y *= flat
+		if p.y < -0.3:
+			p.y = -0.3 + (p.y + 0.3) * 0.25
+		return p
 	var mesh := param_surface(f, segs, segs * 2)
 	_mesh_cache[key] = mesh
 	return mesh
@@ -236,15 +441,18 @@ static func pumpkin(radius: float, ribs := 8, squash := 0.78) -> ArrayMesh:
 
 
 ## Superficie de revolución. `profile` son puntos (radio, altura) desde el eje inferior
-## hacia fuera, subiendo por el exterior y bajando por el interior si lo hay.
+## hacia fuera, subiendo por el exterior y bajando por el interior si lo hay. Las normales se
+## suavizan entre tramos del perfil que forman menos de 45° (curvas sin bandas) y se
+## mantienen duras en las esquinas.
 static func lathe(profile: PackedVector2Array, segs := 24) -> ArrayMesh:
+	segs = maxi(segs * 2, 14)
 	var key := "lathe|%s|%d" % [profile, segs]
 	if _mesh_cache.has(key):
 		return _mesh_cache[key]
 	var st := SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	var n_prof := profile.size()
-	# Normal 2D de cada segmento del perfil (hacia "fuera" del recorrido).
+	# Normal 2D de cada tramo del perfil (hacia "fuera" del recorrido).
 	var seg_n := []
 	for i in n_prof - 1:
 		var t := (profile[i + 1] - profile[i]).normalized()
@@ -253,6 +461,12 @@ static func lathe(profile: PackedVector2Array, segs := 24) -> ArrayMesh:
 		var p0 := profile[i]
 		var p1 := profile[i + 1]
 		var n2: Vector2 = seg_n[i]
+		var na := n2
+		var nb := n2
+		if i > 0 and (seg_n[i - 1] as Vector2).dot(n2) > 0.7:
+			na = ((seg_n[i - 1] as Vector2) + n2).normalized()
+		if i < n_prof - 2 and (seg_n[i + 1] as Vector2).dot(n2) > 0.7:
+			nb = ((seg_n[i + 1] as Vector2) + n2).normalized()
 		for j in segs:
 			var a0 := TAU * j / segs
 			var a1 := TAU * (j + 1) / segs
@@ -260,13 +474,15 @@ static func lathe(profile: PackedVector2Array, segs := 24) -> ArrayMesh:
 			var v01 := Vector3(p0.x * cos(a1), p0.y, p0.x * sin(a1))
 			var v10 := Vector3(p1.x * cos(a0), p1.y, p1.x * sin(a0))
 			var v11 := Vector3(p1.x * cos(a1), p1.y, p1.x * sin(a1))
-			var n0 := Vector3(n2.x * cos(a0), n2.y, n2.x * sin(a0)).normalized()
-			var n1 := Vector3(n2.x * cos(a1), n2.y, n2.x * sin(a1)).normalized()
+			var n00 := Vector3(na.x * cos(a0), na.y, na.x * sin(a0)).normalized()
+			var n01 := Vector3(na.x * cos(a1), na.y, na.x * sin(a1)).normalized()
+			var n10 := Vector3(nb.x * cos(a0), nb.y, nb.x * sin(a0)).normalized()
+			var n11 := Vector3(nb.x * cos(a1), nb.y, nb.x * sin(a1)).normalized()
 			if v00.distance_squared_to(v01) > 1e-12:
-				_add_tri(st, v00, v10, v11, n0, n0, n1)
-				_add_tri(st, v00, v11, v01, n0, n1, n1)
-			else:
-				_add_tri(st, v00, v10, v11, n0, n0, n1)
+				_add_tri(st, v00, v10, v11, n00, n10, n11)
+				_add_tri(st, v00, v11, v01, n00, n11, n01)
+			elif v10.distance_squared_to(v11) > 1e-12:
+				_add_tri(st, v00, v10, v11, n00, n10, n11)
 	var mesh := st.commit()
 	_mesh_cache[key] = mesh
 	return mesh
@@ -312,6 +528,7 @@ static func extrude(polygon: PackedVector2Array, height: float) -> ArrayMesh:
 # --- Primitivas cacheadas ----------------------------------------------------
 
 static func sphere(radius: float, segs := 16) -> SphereMesh:
+	segs = maxi(segs, 12)
 	var key := "sphere|%.3f|%d" % [radius, segs]
 	if not _mesh_cache.has(key):
 		var m := SphereMesh.new()
@@ -323,16 +540,21 @@ static func sphere(radius: float, segs := 16) -> SphereMesh:
 	return _mesh_cache[key]
 
 
-static func cylinder(top: float, bottom: float, height: float, segs := 16) -> CylinderMesh:
+## Cilindro (o cono, con `top` = 0) centrado en el origen, con los bordes biselados.
+static func cylinder(top: float, bottom: float, height: float, segs := 16) -> Mesh:
 	var key := "cyl|%.3f|%.3f|%.3f|%d" % [top, bottom, height, segs]
 	if not _mesh_cache.has(key):
-		var m := CylinderMesh.new()
-		m.top_radius = top
-		m.bottom_radius = bottom
-		m.height = height
-		m.radial_segments = segs
-		m.rings = 1
-		_mesh_cache[key] = m
+		var h := height * 0.5
+		var b := clampf(minf(maxf(top, bottom), height) * 0.2, 0.003, 0.06)
+		var prof := PackedVector2Array([Vector2(0.0, -h)])
+		if bottom > 0.0:
+			var bb := minf(b, bottom * 0.5)
+			prof.append_array([Vector2(bottom - bb, -h), Vector2(bottom - bb * 0.29, -h + bb * 0.29), Vector2(bottom, -h + bb)])
+		if top > 0.0:
+			var bt := minf(b, top * 0.5)
+			prof.append_array([Vector2(top, h - bt), Vector2(top - bt * 0.29, h - bt * 0.29), Vector2(top - bt, h)])
+		prof.append(Vector2(0.0, h))
+		_mesh_cache[key] = lathe(prof, segs)
 	return _mesh_cache[key]
 
 
@@ -354,13 +576,13 @@ static func torus(inner: float, outer: float) -> TorusMesh:
 		var m := TorusMesh.new()
 		m.inner_radius = inner
 		m.outer_radius = outer
-		m.rings = 24
-		m.ring_segments = 10
+		m.rings = 32
+		m.ring_segments = 14
 		_mesh_cache[key] = m
 	return _mesh_cache[key]
 
 
-static func cone(radius: float, height: float, segs := 16) -> CylinderMesh:
+static func cone(radius: float, height: float, segs := 16) -> Mesh:
 	return cylinder(0.0, radius, height, segs)
 
 

@@ -13,8 +13,20 @@ const WINDOW := Color(0.2, 0.28, 0.4)
 const GOLD := Color(1.0, 0.82, 0.3)
 
 
-static func _m(c: Color, outline := 0.03) -> ShaderMaterial:
-	return MeshKit.mat(c, outline)
+static func _m(c: Color, _outline := 0.03) -> ShaderMaterial:
+	return MeshKit.surface_mat(c, surface_for(c))
+
+
+## Material que corresponde a un color de la paleta: marrones = madera, grises = piedra,
+## casi blancos = enlucido. El resto (tejados, telas, metal, cristal), sin dibujo.
+static func surface_for(c: Color) -> String:
+	if c.s < 0.25 and c.v > 0.86:
+		return "plaster"
+	if c.s < 0.25 and c.v >= 0.4:
+		return "stone"
+	if c.h > 0.02 and c.h < 0.13 and c.s > 0.3 and c.v < 0.8 and c.v > 0.15:
+		return "wood"
+	return ""
 
 
 static func _p(parent: Node3D, mesh: Mesh, c: Color, pos := Vector3.ZERO, rot := Vector3.ZERO, scl := Vector3.ONE, outline := 0.03) -> MeshInstance3D:
@@ -82,8 +94,8 @@ static func house(seed_value: int, roof_color: Color, wall := WHITE_WALL, size :
 	var d := size.z
 	var top := h + 0.3
 	# Zócalo de piedra y paredes
-	_box(root, Vector3(w + 0.3, 0.6, d + 0.3), STONE_DARK, Vector3(0, 0.3, 0), Vector3.ZERO, 0.08, 0.04)
-	_box(root, Vector3(w, h, d), wall, Vector3(0, h * 0.5 + 0.3, 0), Vector3.ZERO, 0.06, 0.045)
+	MeshKit.part(root, MeshKit.soft_box(Vector3(w + 0.3, 0.6, d + 0.3), 0.12, 0.035, 0.0, seed_value), _m(STONE_DARK), Vector3(0, 0.3, 0))
+	MeshKit.part(root, MeshKit.soft_box(Vector3(w, h, d), 0.14, 0.03, 0.025, seed_value + 1), _m(wall), Vector3(0, h * 0.5 + 0.3, 0))
 	# Entramado de madera: pilares en las esquinas y viga corrida arriba.
 	for sx: int in [-1, 1]:
 		for sz: int in [-1, 1]:
@@ -119,7 +131,7 @@ static func house(seed_value: int, roof_color: Color, wall := WHITE_WALL, size :
 	if r.randf() < 0.7:
 		var cx := w * 0.25
 		var cy := top + roof_h * (1.0 - cx / ((w + 1.1) * 0.5))
-		_box(root, Vector3(0.7, 1.7, 0.7), STONE, Vector3(cx, cy + 0.35, -d * 0.2), Vector3.ZERO, 0.05, 0.03)
+		MeshKit.part(root, MeshKit.soft_box(Vector3(0.7, 1.7, 0.7), 0.08, 0.02, 0.06, seed_value + 2), _m(STONE), Vector3(cx, cy + 0.35, -d * 0.2), Vector3(0, 0, r.randf_range(-2.0, 2.0)))
 		_box(root, Vector3(0.86, 0.18, 0.86), STONE_DARK, Vector3(cx, cy + 1.2, -d * 0.2), Vector3.ZERO, 0.04, 0.025)
 		root.add_child(smoke(Vector3(cx, cy + 1.4, -d * 0.2)))
 	# Macetas
@@ -158,7 +170,8 @@ static func _gable_roof(root: Node3D, w: float, d: float, top: float, roof_h: fl
 		var dir := Vector3(-sx * cos(a), sin(a), 0)
 		var eave := Vector3(sx * half, top, 0)
 		var rot := Vector3(0, 0, -sx * rad_to_deg(a))
-		_box(root, Vector3(slope_len + 0.12, thick, depth), c, eave + dir * slope_len * 0.5 - n * thick * 0.5, rot, 0.05, 0.045)
+		MeshKit.part(root, MeshKit.rounded_box(Vector3(slope_len + 0.12, thick, depth), 0.05, 3), MeshKit.surface_mat(c, "tile", 0.1),
+			eave + dir * slope_len * 0.5 - n * thick * 0.5, rot)
 		# Filas de tejas: listones algo más oscuros que sobresalen del faldón.
 		for k in 4:
 			var t := 0.1 + k * 0.22
@@ -197,7 +210,7 @@ static func _window(root: Node3D, pos: Vector3, yaw: float, shutter: Color, plan
 	_box(holder, Vector3(0.86, 0.06, 0.06), frame, Vector3(0, 0.02, 0.05), Vector3.ZERO, 0.02, 0.0)
 	_box(holder, Vector3(1.12, 0.12, 0.18), WOOD, Vector3(0, -0.5, 0.05), Vector3.ZERO, 0.03, 0.02)
 	for s: int in [-1, 1]:
-		_box(holder, Vector3(0.42, 0.95, 0.06), shutter.lightened(0.15), Vector3(s * 0.74, 0, 0.04), Vector3.ZERO, 0.02, 0.02)
+		MeshKit.part(holder, MeshKit.rounded_box(Vector3(0.42, 0.95, 0.06), 0.02, 3), MeshKit.surface_mat(shutter.lightened(0.15), "wood", 0.1), Vector3(s * 0.74, 0, 0.04))
 		for k in 3:
 			_box(holder, Vector3(0.34, 0.035, 0.02), shutter.darkened(0.05), Vector3(s * 0.74, -0.28 + k * 0.28, 0.08), Vector3.ZERO, 0.01, 0.0)
 	if planter:
@@ -268,11 +281,32 @@ static func flower_pot(root: Node3D, pos: Vector3, seed_value: int) -> void:
 
 static func windmill() -> Dictionary:
 	var root := Node3D.new()
-	var prof := PackedVector2Array([Vector2(2.6, 0), Vector2(2.4, 1.0), Vector2(1.9, 7.5), Vector2(0.0, 7.5)])
-	_p(root, MeshKit.lathe(prof, 14), WHITE_WALL, Vector3.ZERO, Vector3.ZERO, Vector3.ONE, 0.05)
-	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(2.3, 0), Vector2(2.2, 0.4), Vector2(0.0, 2.6)]), 14), Color(0.85, 0.35, 0.3), Vector3(0, 7.4, 0), Vector3.ZERO, Vector3.ONE, 0.05)
-	_box(root, Vector3(1.2, 2.0, 0.2), WOOD, Vector3(0, 1.0, 2.45), Vector3(0, 0, 0), 0.05, 0.03)
+	# Torre encalada, algo abombada, sobre un zócalo de piedra.
+	var prof := PackedVector2Array([Vector2(2.62, 0), Vector2(2.56, 0.6), Vector2(2.44, 1.6), Vector2(2.3, 3.2),
+		Vector2(2.14, 5.0), Vector2(2.0, 6.6), Vector2(1.94, 7.5), Vector2(0.0, 7.5)])
+	_p(root, MeshKit.lathe(prof, 18), WHITE_WALL)
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(2.86, 0), Vector2(2.84, 0.5), Vector2(2.66, 0.72), Vector2(0.0, 0.72)]), 18), STONE_DARK)
+	_p(root, MeshKit.cylinder(2.06, 2.08, 0.24, 18), WOOD_DARK, Vector3(0, 7.45, 0))
+	# Tejado cónico de paja con el alero algo levantado.
+	MeshKit.part(root, MeshKit.lathe(PackedVector2Array([Vector2(2.5, -0.05), Vector2(2.44, 0.2), Vector2(1.95, 0.75),
+		Vector2(1.05, 1.75), Vector2(0.38, 2.45), Vector2(0.0, 2.75)]), 18), MeshKit.surface_mat(Color(0.8, 0.66, 0.42), "thatch", 0.1), Vector3(0, 7.5, 0))
+	# Puerta con marco y escalón.
+	_box(root, Vector3(1.55, 2.35, 0.24), WOOD_DARK, Vector3(0, 1.2, 2.42))
+	_box(root, Vector3(1.2, 2.05, 0.2), WOOD, Vector3(0, 1.08, 2.5))
+	_box(root, Vector3(1.8, 0.2, 0.8), STONE, Vector3(0, 0.1, 2.85))
 	MeshKit.part(root, MeshKit.rounded_box(Vector3(0.8, 0.8, 0.2), 0.03, 2), glass(), Vector3(0, 4.5, 2.13), Vector3(-6, 0, 0))
+	# Ventanucos alrededor de la torre.
+	for w in [[-0.75, 3.1], [0.9, 5.3], [2.6, 4.0], [3.7, 2.4]]:
+		var ang: float = w[0]
+		var y: float = w[1]
+		var rad := lerpf(2.44, 1.94, clampf((y - 1.6) / 5.9, 0.0, 1.0)) + 0.02
+		var holder := Node3D.new()
+		holder.position = Vector3(sin(ang) * rad, y, cos(ang) * rad)
+		holder.rotation.y = ang
+		root.add_child(holder)
+		_box(holder, Vector3(0.62, 0.8, 0.16), WOOD_DARK, Vector3.ZERO)
+		MeshKit.part(holder, MeshKit.rounded_box(Vector3(0.44, 0.62, 0.12), 0.03, 2), glass(), Vector3(0, 0, 0.03))
+		_box(holder, Vector3(0.72, 0.1, 0.24), STONE, Vector3(0, -0.44, 0.05))
 	var hub := Node3D.new()
 	hub.position = Vector3(0, 7.2, 2.4)
 	root.add_child(hub)
@@ -308,8 +342,22 @@ static func beacon(stripe: Color, height := 13.0) -> Dictionary:
 		var y := height * k
 		var rr := lerpf(base_r, top_r, k) + 0.06
 		_p(root, MeshKit.cylinder(rr, rr + 0.06, height * 0.1, 16), stripe, Vector3(0, y, 0), Vector3.ZERO, Vector3.ONE, 0.03)
-	# Puerta
+	# Zócalo de piedra
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(base_r + 0.85, 0), Vector2(base_r + 0.8, 0.55), Vector2(base_r + 0.55, 0.8), Vector2(0.0, 0.8)]), 18), STONE_DARK)
+	# Puerta con marco de piedra
+	_box(root, Vector3(1.75, 2.6, 0.32), STONE, Vector3(0, 1.3 + 0.8, base_r - 0.02))
 	_box(root, Vector3(1.3, 2.2, 0.3), WOOD, Vector3(0, 1.1 + 0.8, base_r + 0.05), Vector3.ZERO, 0.06, 0.03)
+	# Ventanas que suben en espiral por la torre
+	for k in 3:
+		var y := height * (0.3 + 0.2 * k)
+		var ang := 0.9 + k * 2.2
+		var rad := lerpf(base_r, top_r, (y - 1.0) / (height - 1.0)) + 0.03
+		var holder := Node3D.new()
+		holder.position = Vector3(sin(ang) * rad, y, cos(ang) * rad)
+		holder.rotation.y = ang
+		root.add_child(holder)
+		_box(holder, Vector3(0.62, 0.85, 0.16), STONE, Vector3.ZERO)
+		MeshKit.part(holder, MeshKit.rounded_box(Vector3(0.42, 0.62, 0.12), 0.03, 2), glass(), Vector3(0, 0, 0.04))
 	# Balcón
 	_p(root, MeshKit.cylinder(top_r + 0.9, top_r + 0.5, 0.4, 18), STONE, Vector3(0, height + 0.2, 0), Vector3.ZERO, Vector3.ONE, 0.04)
 	for i in 12:
@@ -372,7 +420,7 @@ static func dock(length: float) -> Node3D:
 static func boat() -> Node3D:
 	var root := Node3D.new()
 	var hull := PackedVector2Array([Vector2(0.0, -0.6), Vector2(0.9, -0.5), Vector2(1.25, 0.0), Vector2(1.3, 0.35), Vector2(0.0, 0.35)])
-	_p(root, MeshKit.lathe(hull, 16), Color(0.25, 0.5, 0.75), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 2.6), 0.04)
+	MeshKit.part(root, MeshKit.lathe(hull, 16), MeshKit.surface_mat(Color(0.25, 0.5, 0.75), "wood", 0.1), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 2.6))
 	_p(root, MeshKit.cylinder(1.15, 1.15, 0.08, 16), WOOD, Vector3(0, 0.25, 0), Vector3.ZERO, Vector3(1.0, 1.0, 2.5), 0.0)
 	_p(root, MeshKit.cylinder(0.07, 0.07, 4.0, 6), WOOD_DARK, Vector3(0, 2.2, -0.5), Vector3.ZERO, Vector3.ONE, 0.02)
 	var sail := MeshKit.extrude(PackedVector2Array([Vector2(0, 0), Vector2(2.2, 0), Vector2(0, 3.2)]), 0.04)
@@ -396,18 +444,33 @@ static func fountain() -> Node3D:
 
 static func market_stall(awning: Color) -> Node3D:
 	var root := Node3D.new()
-	_box(root, Vector3(3.2, 1.0, 1.4), WOOD, Vector3(0, 0.5, 0), Vector3.ZERO, 0.05, 0.03)
+	# Mostrador de tablas con frente de listones verticales.
+	_box(root, Vector3(3.2, 0.12, 1.4), WOOD, Vector3(0, 1.0, 0))
+	for i in 9:
+		_box(root, Vector3(0.34, 0.92, 0.07), WOOD if i % 2 == 0 else WOOD.lightened(0.06), Vector3(-1.42 + i * 0.355, 0.47, 0.66), Vector3(0, 0, (i % 3 - 1) * 0.8))
+	_box(root, Vector3(3.1, 0.9, 1.3), WOOD_DARK, Vector3(0, 0.46, -0.03))
 	for sx: int in [-1, 1]:
 		for sz: int in [-1, 1]:
-			_box(root, Vector3(0.14, 2.6, 0.14), WOOD_DARK, Vector3(sx * 1.5, 1.3, sz * 0.6), Vector3.ZERO, 0.03, 0.02)
+			_p(root, MeshKit.cylinder(0.07, 0.08, 2.65, 8), WOOD_DARK, Vector3(sx * 1.5, 1.32, sz * 0.6))
+	# Toldo de tela a rayas: cae en una curva suave y acaba en festón.
+	var fab := [awning, Color(0.98, 0.96, 0.9)]
 	for i in 6:
-		var c := awning if i % 2 == 0 else Color(0.98, 0.96, 0.9)
-		_box(root, Vector3(0.56, 0.08, 1.9), c, Vector3(-1.4 + i * 0.56, 2.65, 0.15), Vector3(14, 0, 0), 0.02, 0.02)
+		var stripe := Node3D.new()
+		stripe.position = Vector3(-1.4 + i * 0.56, 2.65, 0.15)
+		stripe.rotation_degrees.x = 14.0
+		root.add_child(stripe)
+		for k in 4:
+			var t := k / 3.0
+			_p(stripe, MeshKit.rounded_box(Vector3(0.56, 0.05, 0.52), 0.02, 2), fab[i % 2], Vector3(0, -t * t * 0.18, -0.75 + k * 0.5), Vector3(t * 12.0, 0, 0))
+		_p(stripe, MeshKit.cylinder(0.28, 0.28, 0.04, 14), fab[i % 2], Vector3(0, -0.22, 1.02), Vector3(90, 0, 0), Vector3(1.0, 1.0, 0.55))
 	var fruit := [Color(1, 0.45, 0.3), Color(1, 0.8, 0.3), Color(0.6, 0.85, 0.35), Color(0.65, 0.4, 0.8)]
 	for i in 4:
-		_box(root, Vector3(0.6, 0.25, 0.5), WOOD.lightened(0.15), Vector3(-1.1 + i * 0.73, 1.12, 0.1), Vector3.ZERO, 0.03, 0.02)
-		for k in 4:
-			_p(root, MeshKit.sphere(0.1, 6), fruit[i], Vector3(-1.25 + i * 0.73 + (k % 2) * 0.25, 1.32, (k / 2) * 0.2), Vector3.ZERO, Vector3.ONE, 0.0)
+		# Cestas de mimbre (madera clara) con fruta amontonada.
+		_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.22, 0), Vector2(0.3, 0.06), Vector2(0.34, 0.22), Vector2(0.3, 0.24), Vector2(0.0, 0.2)]), 12),
+			WOOD.lightened(0.2), Vector3(-1.1 + i * 0.73, 1.06, 0.1))
+		for k in 6:
+			var a := TAU * k / 6.0 + i
+			_p(root, MeshKit.sphere(0.1, 10), fruit[i], Vector3(-1.1 + i * 0.73 + cos(a) * 0.14, 1.32 + (k % 3) * 0.04, 0.1 + sin(a) * 0.14))
 	var b := body(root)
 	box_col(b, Vector3(3.2, 1.0, 1.4), Vector3(0, 0.5, 0))
 	return root
@@ -415,13 +478,19 @@ static func market_stall(awning: Color) -> Node3D:
 
 static func lamp_post() -> Dictionary:
 	var root := Node3D.new()
-	_p(root, MeshKit.cylinder(0.08, 0.12, 3.0, 8), Color(0.25, 0.27, 0.3), Vector3(0, 1.5, 0), Vector3.ZERO, Vector3.ONE, 0.02)
 	var metal := Color(0.25, 0.27, 0.3)
-	_box(root, Vector3(0.5, 0.08, 0.5), metal, Vector3(0, 2.93, 0), Vector3.ZERO, 0.02, 0.015)
-	_p(root, MeshKit.cone(0.38, 0.3, 4), metal, Vector3(0, 3.62, 0), Vector3(0, 45, 0), Vector3.ONE, 0.02)
+	# Pie moldeado, fuste fino con anillos, ménsula curva y farol con tejadillo.
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.24, 0), Vector2(0.24, 0.08), Vector2(0.18, 0.16), Vector2(0.15, 0.32),
+		Vector2(0.1, 0.4), Vector2(0.0, 0.42)]), 12), metal)
+	_p(root, MeshKit.cylinder(0.065, 0.085, 2.6, 10), metal, Vector3(0, 1.65, 0))
+	for y: float in [0.55, 2.5]:
+		_p(root, MeshKit.torus(0.06, 0.11), metal, Vector3(0, y, 0))
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.08, 0), Vector2(0.26, 0.04), Vector2(0.28, 0.08), Vector2(0.0, 0.1)]), 12), metal, Vector3(0, 2.9, 0))
 	for sx: int in [-1, 1]:
 		for sz: int in [-1, 1]:
-			_box(root, Vector3(0.05, 0.55, 0.05), metal, Vector3(sx * 0.2, 3.22, sz * 0.2), Vector3.ZERO, 0.01, 0.0)
+			_p(root, MeshKit.cylinder(0.022, 0.022, 0.52, 6), metal, Vector3(sx * 0.17, 3.24, sz * 0.17))
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.34, 0), Vector2(0.32, 0.05), Vector2(0.12, 0.26), Vector2(0.06, 0.32), Vector2(0.0, 0.42)]), 12), metal, Vector3(0, 3.5, 0))
+	_p(root, MeshKit.sphere(0.05, 10), metal, Vector3(0, 3.95, 0))
 	var glow_off := MeshKit.mat(Color(0.9, 0.88, 0.75), 0.0)
 	var glow_on := MeshKit.mat(Color(1.0, 0.85, 0.5), 0.0, 4.0, Color(1.0, 0.75, 0.4))
 	var glass := MeshKit.part(root, MeshKit.rounded_box(Vector3(0.34, 0.48, 0.34), 0.03, 1), glow_off, Vector3(0, 3.22, 0))
@@ -440,20 +509,36 @@ static func lamp_post() -> Dictionary:
 
 static func bench() -> Node3D:
 	var root := Node3D.new()
-	_box(root, Vector3(1.8, 0.12, 0.5), WOOD, Vector3(0, 0.5, 0), Vector3.ZERO, 0.03, 0.02)
-	_box(root, Vector3(1.8, 0.45, 0.08), WOOD, Vector3(0, 0.85, -0.22), Vector3(-10, 0, 0), 0.03, 0.02)
-	for s: int in [-1, 1]:
-		_box(root, Vector3(0.1, 0.5, 0.45), WOOD_DARK, Vector3(s * 0.75, 0.25, 0), Vector3.ZERO, 0.02, 0.02)
+	# Asiento y respaldo de listones separados, sobre patas de hierro curvadas.
+	for k in 3:
+		_box(root, Vector3(1.8, 0.05, 0.14), WOOD, Vector3(0, 0.5, -0.17 + k * 0.17), Vector3(0, (k - 1) * 0.6, 0))
+	for k in 2:
+		_box(root, Vector3(1.8, 0.13, 0.04), WOOD, Vector3(0, 0.72 + k * 0.2, -0.25 - k * 0.03), Vector3(-12, 0, 0))
+	var iron := Color(0.22, 0.24, 0.26)
+	for s2: int in [-1, 1]:
+		var leg := Node3D.new()
+		leg.position = Vector3(s2 * 0.75, 0, 0)
+		root.add_child(leg)
+		_p(leg, MeshKit.cylinder(0.025, 0.03, 0.5, 6), iron, Vector3(0, 0.24, 0.17), Vector3(-8, 0, 0))
+		_p(leg, MeshKit.cylinder(0.025, 0.03, 0.95, 6), iron, Vector3(0, 0.47, -0.2), Vector3(-12, 0, 0))
+		_p(leg, MeshKit.cylinder(0.022, 0.022, 0.42, 6), iron, Vector3(0, 0.46, -0.01), Vector3(90, 0, 0))
+		_p(leg, MeshKit.torus(0.03, 0.06), iron, Vector3(0, 0.62, 0.2), Vector3(0, 0, 90))
 	return root
 
 
+## Valla rústica: postes y travesaños de troncos, cada uno algo torcido.
 static func fence(length: float) -> Node3D:
 	var root := Node3D.new()
+	var r := RandomNumberGenerator.new()
+	r.seed = int(length * 100.0)
 	var posts := int(length / 2.0) + 1
 	for i in posts:
-		_box(root, Vector3(0.16, 1.1, 0.16), WOOD, Vector3(i * 2.0 - length * 0.5, 0.55, 0), Vector3.ZERO, 0.03, 0.02)
+		var h := r.randf_range(1.05, 1.2)
+		_p(root, MeshKit.cylinder(0.075, 0.09, h, 8), WOOD, Vector3(i * 2.0 - length * 0.5, h * 0.5 - 0.05, 0),
+			Vector3(r.randf_range(-3.0, 3.0), r.randf_range(0, 360), r.randf_range(-3.0, 3.0)))
 	for y: float in [0.45, 0.85]:
-		_box(root, Vector3(length, 0.1, 0.08), WOOD.lightened(0.1), Vector3(0, y, 0), Vector3.ZERO, 0.02, 0.02)
+		_p(root, MeshKit.cylinder(0.05, 0.055, length + 0.2, 8), WOOD.lightened(0.08), Vector3(0, y + r.randf_range(-0.03, 0.03), 0.06),
+			Vector3(0, 0, 90.0 + r.randf_range(-1.5, 1.5)))
 	return root
 
 
@@ -484,8 +569,16 @@ static func clothes_line() -> Node3D:
 
 static func crate(c := WOOD) -> Node3D:
 	var root := Node3D.new()
-	_box(root, Vector3(0.9, 0.9, 0.9), c, Vector3(0, 0.45, 0), Vector3.ZERO, 0.04, 0.025)
-	_box(root, Vector3(0.95, 0.12, 0.95), c.darkened(0.2), Vector3(0, 0.75, 0), Vector3.ZERO, 0.02, 0.0)
+	# Caja de tablas: cuerpo algo hundido y un marco de listones en los cantos y en aspa.
+	_box(root, Vector3(0.84, 0.84, 0.84), c.darkened(0.08), Vector3(0, 0.45, 0))
+	var frame := c.darkened(0.22)
+	for sy: int in [-1, 1]:
+		for sz: int in [-1, 1]:
+			_box(root, Vector3(0.92, 0.09, 0.09), frame, Vector3(0, 0.45 + sy * 0.42, sz * 0.42))
+			_box(root, Vector3(0.09, 0.09, 0.92), frame, Vector3(sy * 0.42, 0.45 + sz * 0.42, 0))
+			_box(root, Vector3(0.09, 0.92, 0.09), frame, Vector3(sy * 0.42, 0.45, sz * 0.42))
+	for face: int in [-1, 1]:
+		_box(root, Vector3(1.05, 0.08, 0.05), frame, Vector3(0, 0.45, face * 0.44), Vector3(0, 0, 45))
 	var b := body(root)
 	box_col(b, Vector3(0.9, 0.9, 0.9), Vector3(0, 0.45, 0))
 	return root
@@ -522,31 +615,20 @@ static func needle_rock(height := 11.0) -> Node3D:
 	var root := Node3D.new()
 	var r := RandomNumberGenerator.new()
 	r.seed = 11 + int(height)
-	var tones := [Color(0.74, 0.67, 0.58), Color(0.66, 0.6, 0.54), Color(0.7, 0.63, 0.57), Color(0.62, 0.57, 0.53)]
-	var layers := maxi(4, int(height / 2.2))
-	var y := 0.0
-	for i in layers:
-		var t0 := float(i) / layers
-		var t1 := float(i + 1) / layers
-		var lh := height * (t1 - t0)
-		var r0 := lerpf(3.1, 1.7, t0) + r.randf_range(-0.1, 0.15)
-		var r1 := lerpf(3.1, 1.7, t1) * r.randf_range(0.86, 0.95)
-		# Perfil: base algo metida, panza y un saliente arriba.
-		var prof := PackedVector2Array([Vector2(r0 * 0.94, 0.0), Vector2(r0, lh * 0.15), Vector2(r1 * 1.04, lh * 0.82), Vector2(r1 * 1.08, lh), Vector2(0.0, lh)])
-		var seg := 7 + i % 2
-		var c: Color = tones[(i + int(height)) % tones.size()]
-		var off := Vector3(r.randf_range(-0.15, 0.15), y, r.randf_range(-0.15, 0.15))
-		_p(root, MeshKit.lathe(prof, seg), c, off, Vector3(0, r.randf() * 360.0, 0), Vector3.ONE, 0.045)
-		# Matas de hierba en algunas repisas.
-		if i < layers - 1 and r.randf() < 0.55:
+	var col := Color(0.72, 0.66, 0.58) if height < 14.0 else Color(0.66, 0.62, 0.58)
+	_p(root, MeshKit.spire(height, 3.1, 1.75, int(height) * 7), col, Vector3.ZERO, Vector3(0, r.randf() * 360.0, 0))
+	# Matas de hierba en algunas repisas y la cima cubierta de verde.
+	for i in int(height / 2.2):
+		if r.randf() < 0.5:
 			var a := r.randf() * TAU
+			var y := (i + 1) * 2.2
+			var rad := lerpf(3.1, 1.75, y / height) * 0.98
 			var g := Color(0.42, 0.68, 0.3).lerp(Color(0.55, 0.75, 0.32), r.randf())
-			_p(root, MeshKit.blob(0.55, 0.45, 0.25, i + 20, 7), g, off + Vector3(cos(a) * r1 * 0.95, lh + 0.05, sin(a) * r1 * 0.95), Vector3.ZERO, Vector3.ONE, 0.025)
-		y += lh
-	_p(root, MeshKit.blob(1.75, 0.32, 0.2, 2, 9), Color(0.42, 0.68, 0.3), Vector3(0, height + 0.1, 0), Vector3.ZERO, Vector3.ONE, 0.03)
+			_p(root, MeshKit.blob(0.55, 0.4, 0.25, i + 20, 10), g, Vector3(cos(a) * rad, y, sin(a) * rad))
+	_p(root, MeshKit.blob(1.6, 0.32, 0.2, 2, 12), Color(0.42, 0.68, 0.3), Vector3(0, height + 0.15, 0))
 	for k in 3:
 		var a2 := TAU * k / 3.0 + 0.4
-		_p(root, MeshKit.blob(0.45, 0.6, 0.2, 30 + k, 7), Color(0.38, 0.62, 0.28), Vector3(cos(a2) * 1.2, height + 0.3, sin(a2) * 1.2), Vector3.ZERO, Vector3.ONE, 0.025)
+		_p(root, MeshKit.blob(0.45, 0.6, 0.2, 30 + k, 10), Color(0.38, 0.62, 0.28), Vector3(cos(a2) * 1.1, height + 0.3, sin(a2) * 1.1))
 	var b := body(root)
 	cyl_col(b, 2.4, height, Vector3(0, height * 0.5, 0))
 	return root
@@ -554,12 +636,19 @@ static func needle_rock(height := 11.0) -> Node3D:
 
 static func ruin_pillar(height: float, broken := false) -> Node3D:
 	var root := Node3D.new()
-	_box(root, Vector3(1.6, 0.5, 1.6), STONE_DARK, Vector3(0, 0.25, 0), Vector3.ZERO, 0.06, 0.035)
-	_p(root, MeshKit.cylinder(0.55, 0.62, height, 10), STONE, Vector3(0, height * 0.5 + 0.5, 0), Vector3.ZERO, Vector3.ONE, 0.04)
+	var sd := int(height * 17.0) + (1 if broken else 0)
+	# Plinto, basa con molduras, fuste acanalado y capitel (o un trozo roto encima).
+	MeshKit.part(root, MeshKit.soft_box(Vector3(1.6, 0.45, 1.6), 0.1, 0.04, 0.0, sd), _m(STONE_DARK), Vector3(0, 0.22, 0))
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.72, 0.0), Vector2(0.74, 0.1), Vector2(0.66, 0.18), Vector2(0.62, 0.24),
+		Vector2(0.64, 0.3), Vector2(0.58, 0.36), Vector2(0.0, 0.36)]), 16), STONE, Vector3(0, 0.45, 0))
+	_p(root, MeshKit.column(height - 0.2, 0.56, 16, sd), STONE, Vector3(0, 0.78, 0))
+	var top := height + 0.58
 	if not broken:
-		_box(root, Vector3(1.5, 0.4, 1.5), STONE_DARK, Vector3(0, height + 0.7, 0), Vector3.ZERO, 0.06, 0.035)
+		_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.48, 0.0), Vector2(0.56, 0.08), Vector2(0.7, 0.2), Vector2(0.0, 0.22)]), 16), STONE, Vector3(0, top - 0.02, 0))
+		MeshKit.part(root, MeshKit.soft_box(Vector3(1.5, 0.36, 1.5), 0.08, 0.03, 0.0, sd + 1), _m(STONE_DARK), Vector3(0, top + 0.36, 0))
 	else:
-		_p(root, MeshKit.blob(0.7, 0.5, 0.3, int(height * 10), 7), STONE, Vector3(0.2, height + 0.5, 0), Vector3(0, 0, 25), Vector3.ONE, 0.035)
+		_p(root, MeshKit.cylinder(0.5, 0.5, 0.06, 12), STONE, Vector3(0, top - 0.04, 0))
+		_p(root, MeshKit.rock(sd, 0.5, 14), STONE, Vector3(0.2, top + 0.1, 0), Vector3(0, 0, 25), Vector3.ONE * 0.6)
 	var b := body(root)
 	cyl_col(b, 0.65, height + 0.9, Vector3(0, (height + 0.9) * 0.5, 0))
 	return root
@@ -567,9 +656,15 @@ static func ruin_pillar(height: float, broken := false) -> Node3D:
 
 static func ruin_arch(width: float, height: float) -> Node3D:
 	var root := Node3D.new()
-	for s: int in [-1, 1]:
-		_box(root, Vector3(1.2, height, 1.2), STONE, Vector3(s * width * 0.5, height * 0.5, 0), Vector3.ZERO, 0.08, 0.04)
-	_box(root, Vector3(width + 1.6, 1.0, 1.4), STONE_DARK, Vector3(0, height + 0.5, 0), Vector3.ZERO, 0.08, 0.04)
+	# Pilares de sillares desgastados (cada bloque algo distinto) y dintel.
+	for sx: int in [-1, 1]:
+		var blocks := maxi(2, int(height / 1.1))
+		var bh := height / blocks
+		for k in blocks:
+			var sz := Vector3(1.2 - (k % 2) * 0.08, bh - 0.02, 1.2 - ((k + 1) % 2) * 0.08)
+			MeshKit.part(root, MeshKit.soft_box(sz, 0.12, 0.05, 0.0, int(width * 10) + k * 3 + sx), _m(STONE),
+				Vector3(sx * width * 0.5, bh * (k + 0.5), 0), Vector3(0, (k * 37 % 7) - 3.0, 0))
+	MeshKit.part(root, MeshKit.soft_box(Vector3(width + 1.6, 1.0, 1.4), 0.14, 0.06, 0.0, int(height * 10)), _m(STONE_DARK), Vector3(0, height + 0.5, 0), Vector3(0, 0, 1.2))
 	var b := body(root)
 	for s: int in [-1, 1]:
 		box_col(b, Vector3(1.2, height, 1.2), Vector3(s * width * 0.5, height * 0.5, 0))
@@ -580,7 +675,7 @@ static func ruin_arch(width: float, height: float) -> Node3D:
 ## Plataforma de piedra (escalones de las ruinas, torre de salida de la carrera).
 static func stone_block(size: Vector3, c := STONE) -> Node3D:
 	var root := Node3D.new()
-	_box(root, size, c, Vector3(0, size.y * 0.5, 0), Vector3.ZERO, 0.1, 0.04)
+	MeshKit.part(root, MeshKit.soft_box(size, 0.14, minf(0.06, size.y * 0.05), 0.0, int(size.x * 13.0 + size.y * 7.0)), _m(c), Vector3(0, size.y * 0.5, 0))
 	var b := body(root)
 	box_col(b, size, Vector3(0, size.y * 0.5, 0))
 	return root
@@ -608,7 +703,21 @@ static func cabin(log_color := WOOD) -> Node3D:
 
 static func tent(c: Color) -> Node3D:
 	var root := Node3D.new()
-	_roof(root, 3.4, 2.2, 3.6, c, Vector3(0, 0, 0))
+	# Lona: triángulo con los lados algo hundidos (tela tensada entre palos).
+	var pts := PackedVector2Array([Vector2(-1.7, 0)])
+	for k in range(1, 6):
+		var t := k / 6.0
+		var sag := sin(t * PI) * 0.16
+		pts.append(Vector2(-1.7 + 1.7 * t + sag * 0.6, 2.2 * t - sag))
+	pts.append(Vector2(0, 2.2))
+	for k in range(1, 6):
+		var t := 1.0 - k / 6.0
+		var sag := sin(t * PI) * 0.16
+		pts.append(Vector2(1.7 - 1.7 * t - sag * 0.6, 2.2 * t - sag))
+	pts.append(Vector2(1.7, 0))
+	_prism(root, pts, 3.6, c, Vector3.ZERO)
+	for sz: int in [-1, 1]:
+		_p(root, MeshKit.cylinder(0.04, 0.05, 2.35, 6), WOOD_DARK, Vector3(0, 1.15, sz * 1.82))
 	_p(root, MeshKit.cylinder(0.05, 0.05, 2.4, 6), WOOD_DARK, Vector3(0, 1.2, 1.9), Vector3.ZERO, Vector3.ONE, 0.0)
 	var b := body(root)
 	box_col(b, Vector3(3.0, 1.6, 3.4), Vector3(0, 0.8, 0))
@@ -619,13 +728,63 @@ static func campfire() -> Dictionary:
 	var root := Node3D.new()
 	for i in 7:
 		var a := TAU * i / 7.0
-		_p(root, MeshKit.blob(0.22, 0.6, 0.2, i, 6), STONE_DARK, Vector3(cos(a) * 0.65, 0.08, sin(a) * 0.65), Vector3.ZERO, Vector3.ONE, 0.02)
+		_p(root, MeshKit.rock(60 + i, 0.6, 12), STONE_DARK, Vector3(cos(a) * 0.65, 0.08, sin(a) * 0.65), Vector3(0, i * 47, 0), Vector3.ONE * 0.22)
 	for i in 3:
 		_p(root, MeshKit.cylinder(0.08, 0.08, 1.0, 6), WOOD_DARK, Vector3(0, 0.15, 0), Vector3(80, i * 60, 0), Vector3.ONE, 0.015)
-	var flame := MeshKit.part(root, MeshKit.blob(0.3, 1.8, 0.15, 1, 7), MeshKit.mat(Color(1.0, 0.6, 0.2), 0.0, 3.0, Color(1.0, 0.5, 0.15)), Vector3(0, 0.5, 0))
-	flame.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	var inner := MeshKit.part(flame, MeshKit.blob(0.18, 1.6, 0.1, 2, 6), MeshKit.mat(Color(1.0, 0.9, 0.5), 0.0, 3.5, Color(1.0, 0.85, 0.4)), Vector3(0, -0.05, 0))
-	inner.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Llamas: tres lenguas de fuego dibujadas por shader, de distinto tamaño y ritmo.
+	var flame := Node3D.new()
+	flame.position = Vector3(0, 0.12, 0)
+	root.add_child(flame)
+	for k in 3:
+		var fm := ShaderMaterial.new()
+		fm.shader = load("res://shaders/flame.gdshader")
+		fm.set_shader_parameter("seed", k * 1.37)
+		fm.set_shader_parameter("speed", 2.0 + k * 0.35)
+		fm.set_shader_parameter("intensity", 2.2 - k * 0.4)
+		var q := QuadMesh.new()
+		q.size = Vector2(0.75 - k * 0.15, 1.25 - k * 0.2)
+		var fq := MeshKit.part(flame, q, fm, Vector3((k - 1) * 0.12, 0.6 - k * 0.08, (k % 2) * 0.08 - 0.04))
+		fq.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	# Brasas que suben y un poco de humo.
+	var embers := GPUParticles3D.new()
+	embers.amount = 14
+	embers.lifetime = 1.6
+	embers.position = Vector3(0, 0.3, 0)
+	embers.visibility_aabb = AABB(Vector3(-1, -0.5, -1), Vector3(2, 4, 2))
+	var em := ParticleProcessMaterial.new()
+	em.emission_shape = ParticleProcessMaterial.EMISSION_SHAPE_SPHERE
+	em.emission_sphere_radius = 0.2
+	em.direction = Vector3.UP
+	em.spread = 18.0
+	em.initial_velocity_min = 0.6
+	em.initial_velocity_max = 1.4
+	em.gravity = Vector3(0, 0.4, 0)
+	em.turbulence_enabled = true
+	em.turbulence_noise_strength = 0.6
+	em.scale_min = 0.5
+	em.scale_max = 1.0
+	var eg := Gradient.new()
+	eg.set_color(0, Color(1.0, 0.85, 0.4, 1.0))
+	eg.set_color(eg.get_point_count() - 1, Color(1.0, 0.3, 0.05, 0.0))
+	var egt := GradientTexture1D.new()
+	egt.gradient = eg
+	em.color_ramp = egt
+	embers.process_material = em
+	var dot := QuadMesh.new()
+	dot.size = Vector2(0.045, 0.045)
+	var dm := StandardMaterial3D.new()
+	dm.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
+	dm.billboard_mode = BaseMaterial3D.BILLBOARD_ENABLED
+	dm.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
+	dm.vertex_color_use_as_albedo = true
+	dm.blend_mode = BaseMaterial3D.BLEND_MODE_ADD
+	dot.material = dm
+	embers.draw_pass_1 = dot
+	embers.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+	root.add_child(embers)
+	var smk := smoke(Vector3(0, 1.4, 0))
+	smk.amount = 6
+	root.add_child(smk)
 	var light := OmniLight3D.new()
 	light.position = Vector3(0, 1.0, 0)
 	light.light_color = Color(1.0, 0.65, 0.35)
@@ -760,7 +919,11 @@ static func updraft(height: float, radius: float) -> Node3D:
 static func signpost(text: String) -> Node3D:
 	var root := Node3D.new()
 	_p(root, MeshKit.cylinder(0.08, 0.1, 1.8, 6), WOOD_DARK, Vector3(0, 0.9, 0), Vector3.ZERO, Vector3.ONE, 0.02)
-	_box(root, Vector3(1.4, 0.45, 0.08), WOOD, Vector3(0.3, 1.5, 0), Vector3.ZERO, 0.03, 0.02)
+	# Tabla con punta de flecha, sujeta con dos clavos.
+	var arrow := PackedVector2Array([Vector2(-0.45, -0.2), Vector2(0.75, -0.2), Vector2(1.0, 0.0), Vector2(0.75, 0.2), Vector2(-0.45, 0.2)])
+	_prism(root, arrow, 0.08, WOOD, Vector3(0.0, 1.5, 0))
+	for nx: float in [-0.3, 0.6]:
+		_p(root, MeshKit.sphere(0.025, 10), Color(0.3, 0.3, 0.32), Vector3(nx, 1.5, 0.05))
 	var l := Label3D.new()
 	l.text = text
 	l.font_size = 40
