@@ -11,6 +11,8 @@ var climb_move := Vector2.ZERO
 var lean := 0.0
 ## Avance de la voltereta (0 a 1) mientras state == "roll".
 var roll_k := 0.0
+## Giro de los pedales (radianes) mientras state == "bike".
+var pedal := 0.0
 
 var spec := {}
 var hips: Node3D
@@ -547,6 +549,22 @@ func _process(delta: float) -> void:
 				t["arm_r"] = 1.7
 				t["elbow_l"] = 1.4
 				t["elbow_r"] = 1.4
+		"bike":
+			# Sentada en la bici: manos al manillar y piernas pedaleando en círculo.
+			var pl := pedal
+			t["leg_l"] = 1.15 + sin(pl) * 0.38
+			t["leg_r"] = 1.15 - sin(pl) * 0.38
+			t["knee_l"] = -1.25 - cos(pl) * 0.42
+			t["knee_r"] = -1.25 + cos(pl) * 0.42
+			t["arm_l"] = 1.15
+			t["arm_r"] = 1.15
+			t["elbow_l"] = 0.35
+			t["elbow_r"] = 0.35
+			t["arm_lz"] = -0.25
+			t["arm_rz"] = 0.25
+			t["torso_x"] = -0.32
+			t["head_x"] = -0.15
+			rate = 24.0
 		"pickup", "kneel":
 			# Agacharse: rodillas dobladas, tronco inclinado y manos hacia el suelo.
 			var down := clampf(_state_t / 0.18, 0.0, 1.0)

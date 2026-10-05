@@ -38,6 +38,9 @@ const LEAP_COST := 0.3
 const HOOK_THROW := 0.3
 ## Altura máxima a la que llega el gancho; en paredes más altas se clava en la roca.
 const HOOK_REACH := 12.0
+const BIKE_SPEED := 12.5
+const BOAT_SPEED := 9.0
+const BOAT_SPRINT := 13.5
 const REGEN := 0.95
 
 var state := "ground"
@@ -84,6 +87,15 @@ var wall_normal := Vector3.BACK
 var climb_move := Vector2.ZERO
 var gear: ClimbGear
 var _hook_t := 0.0
+## Vehículos: bici (modifica el movimiento a pie) y barca (estado "boat").
+var has_bike := false
+var on_bike := false
+var bike_model: Node3D
+var boat: Node3D
+var boat_speed := 0.0
+var _bike_phase := 0.0
+var _boat_t := 0.0
+signal vehicle_changed
 ## Acción breve en el suelo ("pickup", "kneel"...): la pose del avatar y Lía se queda quieta.
 var _action := ""
 var _action_t := 0.0
@@ -199,6 +211,8 @@ func _physics_process(dt: float) -> void:
 			_swim(dt)
 		"sit":
 			_sit(dt)
+		"boat":
+			_boat(dt)
 	_stamina(dt)
 	_animate(dt)
 	if global_position.y < -40.0:
@@ -239,7 +253,9 @@ func _ground(dt: float) -> void:
 	var dir := _move_dir()
 	var mag := _move.length()
 	var target_speed := RUN * clampf(mag * 1.15, 0.0, 1.0)
-	var sprinting := _sprint and mag > 0.3 and can_use_stamina()
+	var sprinting := _sprint and mag > 0.3 and can_use_stamina() and not on_bike
+	if on_bike:
+		target_speed = BIKE_SPEED * clampf(mag * 1.15, 0.0, 1.0)
 	if sprinting:
 		target_speed = SPRINT
 		_drain(DRAIN_SPRINT * dt)
@@ -286,7 +302,7 @@ func _ground(dt: float) -> void:
 	if _check_water():
 		return
 	# Escalar (hay que empujar contra la pared un momento) o encaramarse a algo bajo.
-	if dir != Vector3.ZERO and is_on_wall():
+	if dir != Vector3.ZERO and is_on_wall() and not on_bike:
 		_climb_intent += dt
 		if _climb_intent > 0.12:
 			_try_climb(dir, true)
@@ -315,6 +331,8 @@ func _air(dt: float) -> void:
 	velocity.y = maxf(velocity.y - g * dt, -42.0)
 	_fall_peak = maxf(_fall_peak, global_position.y)
 	if _jump_pressed and has_glider and can_use_stamina() and _no_glide <= 0.0 and velocity.y < 3.0 and _height_above_ground() > 1.6:
+		if on_bike:
+			set_bike(false)
 		_set_state("glide")
 		facing = atan2(-velocity.x, -velocity.z) if hs > 1.0 else facing
 		velocity.y = maxf(velocity.y, -3.0)
@@ -333,8 +351,102 @@ func _air(dt: float) -> void:
 		return
 	if _check_water():
 		return
-	if dir != Vector3.ZERO and _no_climb <= 0.0:
+	if dir != Vector3.ZERO and _no_climb <= 0.0 and not on_bike:
 		_try_climb(dir, false)
+
+
+# --- Vehículos ---------------------------------------------------------------------------
+
+## Sube o baja de la bici (solo a pie y en el suelo para subir).
+func set_bike(on: bool) -> void:
+	if on == on_bike:
+		return
+	if on and (not has_bike or state != "ground"):
+		return
+	on_bike = on
+	if on and bike_model == null:
+		bike_model = Props.bicycle()
+		bike_model.top_level = true
+		add_child(bike_model)
+	if bike_model:
+		bike_model.visible = on
+	avatar.position.y = 0.33 if on else 0.0
+	vehicle_changed.emit()
+
+
+## Se sube a la barca `b` (un nodo del mundo que mira hacia -Z).
+func board(b: Node3D) -> void:
+	if on_bike:
+		set_bike(false)
+	boat = b
+	boat_speed = 0.0
+	facing = b.rotation.y
+	global_position = b.global_transform * Props.BOAT_SEAT
+	velocity = Vector3.ZERO
+	_set_state("boat")
+	reset_physics_interpolation()
+	vehicle_changed.emit()
+
+
+## Busca dónde bajarse de la barca: tierra firme o el muelle a menos de 5 m.
+func landing_spot() -> Vector3:
+	var surf := water_surface()
+	var best := Vector3.INF
+	var best_d := INF
+	for r: float in [1.8, 2.8, 3.8, 4.8]:
+		for k in 16:
+			var a := TAU * k / 16.0
+			var p := global_position + Vector3(sin(a), 0, cos(a)) * r
+			var hit := _ray(p + Vector3.UP * 4.0, p + Vector3.DOWN * 3.0)
+			if hit.is_empty() or hit["normal"].y < 0.6:
+				continue
+			var hp: Vector3 = hit["position"]
+			if hp.y < surf + 0.25:
+				continue
+			if not _ray(hp + Vector3(0, 0.1, 0), hp + Vector3(0, HEIGHT, 0)).is_empty():
+				continue
+			if r < best_d:
+				best_d = r
+				best = hp
+	return best
+
+
+## Baja de la barca a `spot` (la barca se queda amarrada donde está).
+func leave_boat(spot: Vector3) -> void:
+	boat_speed = 0.0
+	boat = null
+	teleport(spot + Vector3(0, 0.1, 0), facing)
+	_set_state("ground")
+	vehicle_changed.emit()
+
+
+func _boat(dt: float) -> void:
+	_boat_t += dt
+	var surf := water_surface()
+	var throttle := -_move.y
+	var steer := _move.x
+	var top := BOAT_SPRINT if _sprint else BOAT_SPEED
+	var want := throttle * top * (1.0 if throttle >= 0.0 else 0.35)
+	boat_speed = move_toward(boat_speed, want, dt * (3.2 if absf(throttle) > 0.05 else 1.4))
+	var turn := steer * dt * lerpf(0.5, 1.3, clampf(absf(boat_speed) / 4.0, 0.0, 1.0))
+	facing -= turn * (1.0 if boat_speed >= -0.2 else -1.0)
+	var fwd := Vector3(-sin(facing), 0, -cos(facing))
+	# Encallar: delante (o detrás, marcha atrás) hay poca agua.
+	var probe := global_position + fwd * (2.7 if boat_speed >= 0.0 else -2.4)
+	if island and island.height_at(probe.x, probe.z) > surf - 0.45:
+		boat_speed = 0.0
+	var bob := sin(_boat_t * 1.6) * 0.06 + sin(_boat_t * 2.3 + 1.0) * 0.03
+	velocity = fwd * boat_speed
+	velocity.y = (surf + 0.02 + bob - global_position.y) * 6.0
+	move_and_slide()
+	if is_on_wall():
+		boat_speed *= 0.4
+	if boat:
+		var basis := Basis.from_euler(Vector3(sin(_boat_t * 1.3) * 0.03 - boat_speed * 0.004, facing, -steer * clampf(boat_speed / 8.0, -1.0, 1.0) * 0.12 + sin(_boat_t * 1.7) * 0.025))
+		boat.global_transform = Transform3D(basis, global_position - basis * Props.BOAT_SEAT)
+		var boom := boat.find_child("Boom", true, false) as Node3D
+		if boom:
+			boom.rotation.y = lerpf(boom.rotation.y, -steer * 0.5 + sin(_boat_t * 0.7) * 0.08, dt * 2.0)
 
 
 ## Acción breve en el suelo: Lía se para y hace el gesto (y mira a `look_at` si se indica).
@@ -410,6 +522,8 @@ func _glide(dt: float) -> void:
 func _check_water() -> bool:
 	var surf := water_surface()
 	if surf - global_position.y > 1.05:
+		if on_bike:
+			set_bike(false)
 		if state != "swim":
 			splashed.emit()
 			velocity.y *= 0.2
@@ -672,7 +786,7 @@ func _drain(amount: float) -> void:
 
 
 func _stamina(dt: float) -> void:
-	if state in ["ground", "sit"] and not (_sprint and _move.length() > 0.3 and not exhausted):
+	if state in ["ground", "sit", "boat"] and not (_sprint and _move.length() > 0.3 and not exhausted and state == "ground" and not on_bike):
 		_regen_delay -= dt
 		if _regen_delay <= 0.0:
 			stamina = minf(stamina + REGEN * dt * (0.7 if exhausted else 1.0) * maxf(1.0, stamina_max / 5.0), stamina_max)
@@ -698,6 +812,8 @@ func respawn(p: Vector3) -> void:
 func teleport(p: Vector3, yaw := NAN) -> void:
 	if gear:
 		gear.hide_now()
+	_action_t = 0.0
+	_roll_t = 0.0
 	global_position = p
 	velocity = Vector3.ZERO
 	if not is_nan(yaw):
@@ -751,9 +867,19 @@ func _animate(dt: float) -> void:
 		avatar.rotation.z = _lean
 	avatar.speed = hs
 	avatar.climb_move = climb_move
+	if bike_model and on_bike:
+		var bb := Basis.from_euler(Vector3(0, facing, _lean * 1.4))
+		bike_model.global_transform = Transform3D(bb, global_position + bb * Vector3(0, 0, -0.18))
+		_bike_phase += hs * dt * 2.6
+		for wn in ["WheelF", "WheelB"]:
+			(bike_model.get_node(wn) as Node3D).rotation.x = -_bike_phase * 1.9
+		(bike_model.get_node("Pedals") as Node3D).rotation.x = -_bike_phase
+		avatar.pedal = _bike_phase
 	match state:
 		"ground":
-			if _roll_t > 0.0:
+			if on_bike:
+				avatar.state = "bike"
+			elif _roll_t > 0.0:
 				avatar.state = "roll"
 				avatar.roll_k = 1.0 - _roll_t / 0.55
 			elif _action_t > 0.0:
@@ -775,7 +901,7 @@ func _animate(dt: float) -> void:
 			avatar.state = "mantle"
 		"swim":
 			avatar.state = "swim"
-		"sit":
+		"sit", "boat":
 			avatar.state = "sit"
 	if state == "glide":
 		avatar.rotation.z = lerpf(avatar.rotation.z, clampf(angle_difference(facing, atan2(-velocity.x, -velocity.z)) * 2.0, -0.4, 0.4), 4.0 * dt)

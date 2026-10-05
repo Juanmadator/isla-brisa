@@ -37,6 +37,12 @@ const NPCS := {
 	"lola": {"name": "Lola", "anchor": "petshop_spot", "role": "Cuidadora de animales",
 		"spec": {"hair_style": "pony", "hair": Color(0.35, 0.22, 0.14), "hat": "straw", "hat_color": Color(0.95, 0.85, 0.55),
 			"shirt": Color(0.45, 0.68, 0.4), "pants": Color(0.45, 0.35, 0.25), "scarf": Color(1.0, 0.55, 0.35), "dress": false}},
+	"amparo": {"name": "Amparo", "anchor": "amparo_spot", "role": "Granjera",
+		"spec": {"hair_style": "bun", "hair": Color(0.82, 0.62, 0.35), "hat": "straw", "hat_color": Color(0.92, 0.82, 0.5),
+			"shirt": Color(0.62, 0.42, 0.3), "pants": Color(0.32, 0.45, 0.68), "apron": Color(0.95, 0.9, 0.78), "scarf": Color(0.85, 0.3, 0.3), "girth": 1.15, "dress": false}},
+	"rafa": {"name": "Rafa", "anchor": "bakery_spot", "role": "Panadero",
+		"spec": {"hair_style": "short", "hair": Color(0.2, 0.15, 0.12), "beard": true, "hat": "beanie", "hat_color": Color(0.98, 0.98, 0.95),
+			"shirt": Color(0.98, 0.96, 0.92), "pants": Color(0.4, 0.35, 0.32), "apron": Color(0.95, 0.85, 0.7), "scarf": null, "girth": 1.25, "dress": false, "height": 1.05}},
 	"tito": {"name": "Tito", "anchor": "tito", "role": "Niño",
 		"spec": {"hair_style": "short", "hair": Color(0.45, 0.28, 0.15), "hat": "bandana", "hat_color": Color(0.9, 0.3, 0.3),
 			"shirt": Color(1.0, 0.85, 0.3), "pants": Color(0.3, 0.45, 0.7), "scarf": null, "height": 0.8, "dress": false}},
@@ -114,6 +120,7 @@ const ITEMS := {
 	"scarf_sun": ["scarf", "Bufanda sol", 15, Color(1.0, 0.82, 0.3)],
 	"scarf_plum": ["scarf", "Bufanda ciruela", 20, Color(0.62, 0.4, 0.82)],
 	"scarf_gold": ["scarf", "Bufanda dorada", -1, Color(1.0, 0.75, 0.2)],
+	"scarf_rainbow": ["scarf", "Bufanda arcoíris", -1, Color(0.95, 0.5, 0.75)],
 	"hat_none": ["hat", "Sin sombrero", 0, ["none", Color.WHITE]],
 	"hat_straw": ["hat", "Sombrero de paja", 25, ["straw", Color(0.95, 0.85, 0.5)]],
 	"hat_beret": ["hat", "Boina", 25, ["beret", Color(0.85, 0.3, 0.35)]],
@@ -123,6 +130,7 @@ const ITEMS := {
 	"hat_sailor": ["hat", "Gorro marinero", 40, ["sailor", Color(0.98, 0.98, 1.0)]],
 	"hat_postman": ["hat", "Gorra de cartero", -1, ["postman", Color(0.25, 0.42, 0.75)]],
 	"hat_crown": ["hat", "Corona del viento", -1, ["crown", Color.WHITE]],
+	"hat_captain": ["hat", "Gorro de capitán", -1, ["sailor", Color(0.18, 0.25, 0.45)]],
 	"glider_classic": ["glider", "Paravela clásica", 0, [Color(0.98, 0.95, 0.85), Color(0.95, 0.4, 0.35)]],
 	"glider_dawn": ["glider", "Paravela amanecer", 30, [Color(1.0, 0.75, 0.4), Color(0.95, 0.45, 0.6)]],
 	"glider_ocean": ["glider", "Paravela océano", 30, [Color(0.4, 0.75, 1.0), Color(0.95, 0.98, 1.0)]],
@@ -136,6 +144,7 @@ const ITEMS := {
 	"outfit_forest": ["outfit", "Capa del bosque", 65, [Color(0.3, 0.55, 0.32), Color(0.5, 0.4, 0.3), Color(0.35, 0.25, 0.18), true]],
 	"outfit_explorer": ["outfit", "Exploradora", 70, [Color(0.72, 0.62, 0.42), Color(0.45, 0.38, 0.28), Color(0.35, 0.25, 0.18), false]],
 	"outfit_night": ["outfit", "Noche estrellada", 120, [Color(0.16, 0.2, 0.42), Color(0.95, 0.85, 0.45), Color(0.15, 0.15, 0.25), true]],
+	"outfit_farmer": ["outfit", "Peto de granjera", -1, [Color(0.92, 0.55, 0.45), Color(0.3, 0.45, 0.68), Color(0.4, 0.28, 0.2), false]],
 	"outfit_keeper": ["outfit", "Uniforme de farera", -1, [Color(0.95, 0.95, 0.95), Color(0.85, 0.25, 0.25), Color(0.25, 0.2, 0.2), false]],
 	"pet_none": ["pet", "Sin mascota", 0, null],
 	"pet_chick": ["pet", "Pipo, el pollito", 60, ["chick", "Pipo", [Color(1.0, 0.88, 0.35), Color(1.0, 0.5, 0.2)]]],
@@ -144,6 +153,7 @@ const ITEMS := {
 	"pet_dog": ["pet", "Canela, la perrita", 120, ["dog", "Canela", [Color(0.85, 0.6, 0.35), Color(1.0, 0.95, 0.88)]]],
 	"pet_fox": ["pet", "Brasa, la zorrita", 160, ["fox", "Brasa", [Color(0.95, 0.5, 0.2), Color(1.0, 0.96, 0.9)]]],
 	"pet_parrot": ["pet", "Kiwi, el loro", 200, ["parrot", "Kiwi", [Color(0.3, 0.75, 0.35), Color(0.95, 0.3, 0.25)]]],
+	"food_bread": ["food", "Pan de Rafa", 8, "bread"],
 	"shop_feather": ["special", "Pluma dorada", 60, null],
 	"shop_compass": ["special", "Brújula de plumas", 40, null],
 }
@@ -158,6 +168,9 @@ const SHOPS := {
 		"blurb": "Ropa y sombreros cosidos a mano. Pruébatelos antes de comprar.",
 		"items": ["outfit_sailor", "outfit_denim", "outfit_rain", "outfit_flowers", "outfit_forest", "outfit_explorer",
 			"outfit_night", "hat_straw", "hat_beret", "hat_cap", "hat_beanie", "hat_flowers", "hat_sailor"]},
+	"bakery": {"title": "Panadería de Rafa", "owner": "Rafa", "bye": "Gracias, Rafa",
+		"blurb": "Pan recién hecho. Cómetelo desde la mochila (Esc → Mochila) para recuperar todo el aguante.",
+		"items": ["food_bread"]},
 	"pets": {"title": "Refugio de Lola", "owner": "Lola", "bye": "Hasta luego, Lola",
 		"blurb": "Animales que buscan compañía. Te seguirán a todas partes y a veces encuentran conchas.",
 		"items": ["pet_chick", "pet_bunny", "pet_cat", "pet_dog", "pet_fox", "pet_parrot"]},
@@ -177,10 +190,20 @@ const FISH := {
 	"fish_boot": ["Bota vieja", "any", 6, 0.1, 1, Color(0.42, 0.3, 0.22), [28, 28], "any"],
 }
 
+## Cosas de la mochila: id -> [nombre, icono, precio de venta, descripción]
+const BAG := {
+	"apple": ["Manzana", "apple", 3, "De los manzanos de Amparo. Sacude un manzano para que caigan."],
+	"egg": ["Huevo", "egg", 4, "Las gallinas de Amparo ponen huevos cada día."],
+	"wool": ["Lana", "wool", 6, "Lana de oveja recién esquilada. Valeria hace maravillas con ella."],
+	"flower": ["Flor silvestre", "flower", 2, "Crecen en los prados. Vuelven a salir cada día."],
+	"bread": ["Pan de Rafa", "bread", 0, "Recién hecho. Cómelo desde la mochila para recuperar todo el aguante."],
+}
+
 ## Recompensas en conchas.
 const REWARDS := {
 	"glider": 20, "letters": 40, "kittens": 50, "mushrooms": 40, "beacon": 30, "race_first": 40,
 	"race_again": 15, "race_record": 10, "parcel_min": 10, "parcel_max": 32,
+	"boat": 30, "regatta": 60, "bread": 40, "lost_sheep": 50, "flowers": 35,
 }
 
 const SHELL_COUNT := 70
@@ -239,6 +262,16 @@ const JOURNAL := {
 	"fish_carp": ["Carpa", "Pez · Lago", "fish", "Grande y tranquila, pero cuando tira, tira."],
 	"fish_glow": ["Pez luna", "Pez · Lago (de noche)", "fish", "Brilla en el agua oscura del lago. Ulises dice que es el lago que sueña."],
 	"fish_boot": ["Bota vieja", "Objeto", "fish", "Alguien la perdió hace mucho. Tomeu te da una concha por ella, por las risas."],
+	"npc_amparo": ["Amparo", "Vecina · Granjera", "person", "Lleva la Granja del Prado: ovejas, vacas, gallinas y los mejores manzanos de la isla."],
+	"npc_rafa": ["Rafa", "Vecino · Panadero", "person", "Hace el pan de todo el pueblo desde antes de que salga el sol. Su horno huele a gloria."],
+	"apple": ["Manzana", "Objeto · Granja", "apple", "Sacude un manzano de la granja y recoge las que caen. Vuelven a salir cada día."],
+	"egg": ["Huevo", "Objeto · Granja", "egg", "Recógelos en el gallinero de Amparo. Las gallinas ponen cada mañana."],
+	"wool": ["Lana", "Objeto · Granja", "wool", "Con las tijeras de Amparo puedes esquilar a cada oveja una vez al día."],
+	"flower": ["Flor silvestre", "Objeto", "flower", "Florecen en los prados de la isla. Rosa y el tablón de encargos siempre piden ramos."],
+	"bread": ["Pan de Rafa", "Comida", "bread", "Cómelo desde la mochila (Esc → Mochila) para recuperar todo el aguante."],
+	"boat": ["Barca de vela", "Vehículo", "boat", "La barca de Tomeu, con su vela nueva. Súbete en el muelle y navega alrededor de la isla."],
+	"bike": ["Bici de cartero", "Vehículo", "bike", "Regalo de Bruno. Pulsa V para subir o bajar. Va mucho más rápida por los caminos."],
+	"board": ["Tablón de encargos", "Lugar", "quest", "Junto a la fuente. Cada día hay encargos nuevos de los vecinos, pagados en conchas."],
 	"parcel": ["Paquete de Correos", "Objeto", "parcel", "Un paquete que Bruno te pidió repartir. Quien lo recibe te da una propina en conchas."],
 	"kitten": ["Gatito de Pía", "Criatura", "kitten", "Pequeño, curioso y escurridizo. Le encantan los sitios altos y maúlla cuando se pierde."],
 	"shell": ["Concha", "Objeto", "shell", "La moneda de Isla Brisa. Aparece en las playas y en los cofres, y te la dan como recompensa por los encargos y los repartos."],
@@ -251,10 +284,12 @@ const JOURNAL := {
 	"chest": ["Cofre", "Objeto", "chest", "Hay cofres escondidos por toda la isla. Dentro hay conchas o algún tesoro."],
 }
 const JOURNAL_ORDER := [
-	["Vecinos", ["npc_tomeu", "npc_rosa", "npc_nerea", "npc_bruno", "npc_pia", "npc_marisol", "npc_valeria", "npc_lola", "npc_ulises", "npc_gema", "npc_olga", "npc_tito"]],
+	["Vecinos", ["npc_tomeu", "npc_rosa", "npc_nerea", "npc_bruno", "npc_pia", "npc_marisol", "npc_valeria", "npc_lola", "npc_amparo", "npc_rafa", "npc_ulises", "npc_gema", "npc_olga", "npc_tito"]],
 	["Criaturas", ["kitten", "pet"]],
 	["Peces", ["fish_sardine", "fish_mackerel", "fish_bream", "fish_octopus", "fish_legend", "fish_trout", "fish_carp", "fish_glow", "fish_boot"]],
-	["Objetos", ["shell", "feather", "spark", "mushroom", "chest", "kite", "glider", "letters", "parcel", "rod"]],
+	["Granja", ["apple", "egg", "wool", "flower", "bread"]],
+	["Objetos", ["shell", "feather", "spark", "mushroom", "chest", "kite", "glider", "letters", "parcel", "rod", "board"]],
+	["Vehículos", ["boat", "bike"]],
 ]
 const PLACE_DESC := {
 	"village": "El corazón de la isla: casas blancas, la fuente y el puesto de Marisol.",
@@ -269,4 +304,5 @@ const PLACE_DESC := {
 	"ruins": "Restos de una civilización que sabía hablar con el viento.",
 	"beach": "La playa más larga de la isla, llena de conchas.",
 	"meadow": "Hierba alta que ondea en cuanto vuelve la brisa.",
+	"farm": "La granja de Amparo: ovejas, vacas, gallinas, un huerto y los mejores manzanos de la isla.",
 }

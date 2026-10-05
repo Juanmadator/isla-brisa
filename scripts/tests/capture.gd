@@ -178,6 +178,49 @@ func _ready() -> void:
 	fsh.auto_input = null
 	await _wait(1.5)
 	await _skip()
+	# Vida nueva: tablón, mochila, panadería, barca y bici
+	SaveGame.bag_add("egg", 3)
+	SaveGame.bag_add("apple", 4)
+	SaveGame.bag_add("flower", 5)
+	SaveGame.bag_add("bread", 2)
+	SaveGame.set_flag("has_shears")
+	main._open_menu("shop:board")
+	await _wait(1.0)
+	await _shot("23_board")
+	main.menus.show_pause("bag")
+	await _wait(0.8)
+	await _shot("24_bag")
+	main.resume()
+	var rafa: Npc = gp.npcs["rafa"]
+	var bkp: Vector3 = pl.anchor("bakery")
+	var rp := rafa.position + (rafa.position - bkp).normalized() * 5.5 + Vector3(0, 0.3, 0)
+	_place(rp, _yaw_to(rp, bkp), -0.12)
+	await _wait(1.2)
+	await _shot("25_bakery")
+	SaveGame.set_flag("has_boat")
+	gp.refresh_boat()
+	main.player.board(gp.my_boat)
+	main.rig.look_dir(PI + 0.8, -0.2)
+	for i in 200:
+		main.player.autopilot = {"move": Vector2(0.25, -1), "sprint": true}
+		await get_tree().physics_frame
+	main.player.autopilot = null
+	main.rig.look_dir(main.player.facing + 2.2, -0.15)
+	await _wait(1.0)
+	await _shot("26_sailing")
+	main.player.leave_boat(pl.anchor("dock_end"))
+	SaveGame.set_flag("has_bike")
+	main.player.has_bike = true
+	var fm: Farm = pl.farm
+	var bk := fm.world_at(-6, 30, 0.3)
+	_place(bk, _yaw_to(bk, fm.world_at(0, 0)), -0.15)
+	await _wait(0.5)
+	gp.toggle_bike()
+	await _walk(_yaw_to(bk, fm.world_at(0, 0)), 1.2)
+	main.rig.look_dir(main.player.facing + 2.4, -0.15)
+	await _wait(0.6)
+	await _shot("27_bike_farm")
+	gp.toggle_bike()
 	# Viento de vuelta: remolinos y estelas al planear
 	for id in Catalog.REGULAR_BEACONS:
 		SaveGame.set_flag("lit_" + id)

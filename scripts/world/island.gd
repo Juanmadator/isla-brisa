@@ -42,6 +42,7 @@ const PATHS := [
 	[Vector2(15, 168), Vector2(20, 110), Vector2(30, 40), Vector2(60, -20), Vector2(110, -70), Vector2(132, -98)],
 	[Vector2(20, 110), Vector2(-5, 60), Vector2(-8, 0)],
 	[Vector2(-30, 140), Vector2(-100, 150), Vector2(-128, 146)],
+	[Vector2(30, 40), Vector2(46, 35), Vector2(58, 32)],
 ]
 
 var _n := N

@@ -28,6 +28,8 @@ var night := 0.0
 var _cloud_time := 0.0
 
 signal hour_changed(h: int)
+## Ha amanecido un día nuevo (a las 6:00).
+signal day_passed
 
 
 func _ready() -> void:
@@ -92,6 +94,8 @@ func _process(delta: float) -> void:
 		hour = fmod(hour + delta * 24.0 / DAY_SECONDS * time_scale, 24.0)
 		if int(hour) != before:
 			hour_changed.emit(int(hour))
+			if int(hour) == 6:
+				day_passed.emit()
 		apply()
 
 

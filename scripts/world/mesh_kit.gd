@@ -286,8 +286,8 @@ static func double_sided(mesh: ArrayMesh) -> ArrayMesh:
 ## hacia proa y popa y la borda arqueada. `v` de 0 a 1 recorre de una borda a la otra.
 ## Abierto por arriba y de dos caras. Con `band` = [v0, v1] devuelve solo esa franja,
 ## separada `lift` hacia fuera (para la franja pintada de la borda).
-static func hull(length: float, width: float, depth: float, band := Vector2(0.0, 1.0), lift := 0.0) -> ArrayMesh:
-	var key := "hull|%.2f|%.2f|%.2f|%s|%.3f" % [length, width, depth, band, lift]
+static func hull(length: float, width: float, depth: float, band := Vector2(0.0, 1.0), lift := 0.0, two_sided := true) -> ArrayMesh:
+	var key := "hull|%.2f|%.2f|%.2f|%s|%.3f|%s" % [length, width, depth, band, lift, two_sided]
 	if _mesh_cache.has(key):
 		return _mesh_cache[key]
 	var f := func(u: float, v: float) -> Vector3:
@@ -303,7 +303,10 @@ static func hull(length: float, width: float, depth: float, band := Vector2(0.0,
 		if lift > 0.0:
 			p += Vector3(signf(x), 0.0, 0.0) * lift
 		return p
-	var mesh := double_sided(param_surface(f, 28, 18, Vector3(0, -depth * 2.0, 0), false))
+	# Normales hacia fuera respecto a la línea de crujía a la altura de la borda.
+	var mesh := param_surface(f, 28, 18, Vector3(0, 0.3, 0), false)
+	if two_sided:
+		mesh = double_sided(mesh)
 	_mesh_cache[key] = mesh
 	return mesh
 

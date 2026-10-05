@@ -24,6 +24,7 @@ const NAMED := [
 	["cliff", "Acantilado del Este", Vector2(236, 8), 42.0, 30.0],
 	["ruins", "Ruinas del Viento", Vector2(168, -138), 58.0, 38.0],
 	["beach", "Playa de las Conchas", Vector2(130, 205), 50.0, -10.0],
+	["farm", "Granja del Prado", Vector2(66, 30), 30.0, -10.0],
 	["meadow", "Prado de los Vientos", Vector2(40, 40), 60.0, -10.0],
 ]
 
@@ -42,6 +43,8 @@ var obstacles: Array = []
 var windmill_hub: Node3D
 var flames: Array = []
 var race_rings: Array = []   # Vector3
+var farm: Farm
+var tomeu_boat: Node3D
 
 
 func build(isl: Island) -> void:
@@ -54,6 +57,10 @@ func build(isl: Island) -> void:
 	_build_ruins()
 	_build_camps()
 	_build_extras()
+	farm = Farm.new()
+	farm.name = "Farm"
+	add_child(farm)
+	farm.build(island, self)
 
 
 func anchor(id: String) -> Vector3:
@@ -160,6 +167,23 @@ func _build_village() -> void:
 		kt.rotation.y = yaws["workshop"] + (k - 1) * 0.3
 		kt.rotation.z = (k - 1) * 0.25
 	_build_shops(v)
+	# Panadería de Rafa (al oeste de la plaza) y tablón de encargos junto a la fuente.
+	var bk := v + Vector2(-44, -6)
+	var bk_yaw := yaw_towards(bk, v)
+	var bakery := Props.house(55, Color(0.82, 0.5, 0.3), Color(0.98, 0.92, 0.8), Vector3(7.0, 3.6, 5.4))
+	Props.bakery_front(bakery, 7.0, 5.4)
+	add_child(bakery)
+	bakery.position = Vector3(bk.x, _min_ground(bk, 3.5) - 0.05, bk.y)
+	bakery.rotation.y = bk_yaw
+	anchors["bakery"] = bakery.position
+	var bk_out := Basis(Vector3.UP, bk_yaw) * Vector3(0, 0, 1)
+	var bk_right := Basis(Vector3.UP, bk_yaw) * Vector3(1, 0, 0)
+	anchors["bakery_spot"] = island.ground(Vector2(bakery.position.x, bakery.position.z) + Vector2(bk_out.x, bk_out.z) * 4.6 + Vector2(bk_right.x, bk_right.z) * 2.6)
+	obstacles.append([bakery.position, 5.6])
+	var nb := v + Vector2(-3, 6.5)
+	_place(Props.noticeboard(), nb, yaw_towards(nb, v), 0.1)
+	anchors["noticeboard"] = island.ground(nb + (v - nb).normalized() * 1.6)
+	obstacles.append([island.ground(nb), 1.4])
 	# Puesto del mercado de Marisol
 	var stall_p := v + Vector2(11, 7)
 	var stall := Props.market_stall(Color(0.95, 0.45, 0.4))
@@ -280,6 +304,22 @@ func _build_dock() -> void:
 		add_child(c)
 		c.position = Vector3(shore.x - 1.1, 1.25, shore.z + 1.0 + k * 1.0)
 	anchors["dock_end"] = Vector3(shore.x + 1.0, 2.2, shore.z + 1.0)
+	tomeu_boat = boat
+	# Caseta de pescadores en la arena, con redes secándose.
+	var hut_p := Vector2(shore.x + 14.0, shore.z - 7.0)
+	var hut := Props.house(88, Color(0.3, 0.5, 0.7), Color(0.62, 0.46, 0.32), Vector3(4.6, 2.8, 4.0))
+	add_child(hut)
+	hut.position = Vector3(hut_p.x, _min_ground(hut_p, 2.5) - 0.05, hut_p.y)
+	hut.rotation.y = PI * 0.5
+	obstacles.append([hut.position, 3.6])
+	var rack := Node3D.new()
+	_place(rack, hut_p + Vector2(4.0, 4.0), 0.3, 0.1)
+	for sx: int in [-1, 1]:
+		Props._p(rack, MeshKit.cylinder(0.05, 0.06, 1.9, 6), Props.WOOD_DARK, Vector3(sx * 1.4, 0.95, 0))
+	Props._p(rack, MeshKit.cylinder(0.03, 0.03, 3.0, 6), Props.WOOD_DARK, Vector3(0, 1.85, 0), Vector3(0, 0, 90))
+	var net := func(u: float, v2: float) -> Vector3:
+		return Vector3((u - 0.5) * 2.8, 1.85 - v2 * 1.3 - sin(u * PI) * 0.25, sin(v2 * PI) * 0.08)
+	MeshKit.part(rack, MeshKit.double_sided(MeshKit.param_surface(net, 8, 6, Vector3(0, 5, -2), false)), MeshKit.surface_mat(Color(0.55, 0.62, 0.55), "cloth", 0.0, 0.5))
 
 
 # --- Molino y Roca Aguja -------------------------------------------------------------------

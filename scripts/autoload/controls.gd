@@ -14,6 +14,7 @@ const KEYS := {
 	"map": [KEY_M, KEY_TAB],
 	"quests": [KEY_J],
 	"hint": [KEY_H],
+	"vehicle": [KEY_V],
 }
 const PAD_BUTTONS := {
 	"jump": [JOY_BUTTON_A],
@@ -22,6 +23,7 @@ const PAD_BUTTONS := {
 	"drop": [JOY_BUTTON_Y],
 	"pause": [JOY_BUTTON_START],
 	"map": [JOY_BUTTON_BACK],
+	"vehicle": [JOY_BUTTON_RIGHT_SHOULDER],
 }
 const PAD_AXES := {
 	"move_forward": [JOY_AXIS_LEFT_Y, -1.0],
@@ -41,6 +43,7 @@ const LABELS := {
 	"drop": "Q",
 	"map": "M",
 	"pause": "Esc",
+	"vehicle": "V",
 }
 
 

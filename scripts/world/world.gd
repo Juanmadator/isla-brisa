@@ -9,6 +9,7 @@ var flora: Flora
 var places: Places
 var critters: Critters
 var wind_lines: WindLines
+var traffic: Traffic
 
 
 func build() -> void:
@@ -36,6 +37,10 @@ func build() -> void:
 	critters.name = "Critters"
 	add_child(critters)
 	critters.build(island)
+	traffic = Traffic.new()
+	traffic.name = "Traffic"
+	add_child(traffic)
+	traffic.build(island)
 	wind_lines = WindLines.new()
 	wind_lines.name = "WindLines"
 	wind_lines.island = island

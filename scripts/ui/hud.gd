@@ -324,9 +324,13 @@ func _hint(player: Player) -> String:
 			return "Nadando · Shift: nadar rápido (gasta aguante)"
 		"sit":
 			return "Descansando · el tiempo pasa más deprisa · muévete para levantarte"
+		"boat":
+			return "En barca · W/S: navegar · A/D: timón · Shift: toda la vela · E: bajar junto a la orilla o el muelle"
 		"air":
 			if player.has_glider and player.velocity.y < 2.0:
 				return "Espacio: abrir la paravela"
+	if player.on_bike:
+		return "En bici · V: bajarse · Espacio: saltito"
 	if _hint_t < 40.0:
 		return "WASD: moverse · Espacio: saltar · Shift: correr · E: hablar · M: mapa · Esc: menú"
 	return ""

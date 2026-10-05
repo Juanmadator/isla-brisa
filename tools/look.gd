@@ -57,6 +57,14 @@ func _ready() -> void:
 	await _view(isl.ground(Vector2(170, 30), 3), world.places.anchor("faro_cliff"), "cliff")
 	await _view(world.places.anchor("penon") + Vector3(8, 3, -4), world.places.anchor("faro_islet"), "penon")
 	await _view(isl.ground(Vector2(-100, -20), 8), isl.ground(Vector2(-150, -48), 0), "lake")
+	var fm: Farm = world.places.farm
+	await _view(fm.world_at(-4, 30, 9.0), fm.world_at(2, -4, 2.0), "farm")
+	await _view(fm.world_at(12, 18, 3.0), fm.world_at(24, 4, 0.5), "pasture")
+	world.traffic._move_cart(0.0)
+	var cart: Vector3 = world.traffic._cart.global_position
+	var cpos := cart + Vector3(-7.0, 0, 5.0)
+	cpos.y = maxf(cart.y, world.island.height_at(cpos.x, cpos.z)) + 3.0
+	await _view(cpos, cart + Vector3(0, 1.0, 0), "road", 0.3)
 	var bt := world.places.anchor("boat")
 	await _view(bt + Vector3(5.5, 2.6, 4.0), bt + Vector3(0, 1.0, 0), "boat")
 	var st := world.places.anchor("stall")

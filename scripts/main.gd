@@ -328,6 +328,8 @@ func _unhandled_input(event: InputEvent) -> void:
 			elif event.is_action_pressed("interact"):
 				if gameplay.interact():
 					get_viewport().set_input_as_handled()
+			elif event.is_action_pressed("vehicle"):
+				gameplay.toggle_bike()
 			elif event is InputEventMouseButton and event.pressed and Input.mouse_mode != Input.MOUSE_MODE_CAPTURED:
 				Input.mouse_mode = Input.MOUSE_MODE_CAPTURED
 		"dialog":
@@ -576,6 +578,38 @@ func _showcase_model(entry: String) -> Node3D:
 			n = Node3D.new()
 			MeshKit.part(n, MeshKit.rounded_box(Vector3(0.5, 0.36, 0.4), 0.03, 2), MeshKit.mat(Color(0.8, 0.6, 0.4)), Vector3.ZERO)
 			MeshKit.part(n, MeshKit.rounded_box(Vector3(0.52, 0.06, 0.42), 0.01, 1), MeshKit.mat(Color(0.95, 0.9, 0.75)), Vector3(0, 0.05, 0))
+		"egg":
+			n = Node3D.new()
+			MeshKit.part(n, MeshKit.sphere(0.12, 14), MeshKit.mat(Color(0.98, 0.94, 0.86)), Vector3.ZERO, Vector3.ZERO, Vector3(0.85, 1.1, 0.85))
+			n.scale = Vector3.ONE * 2.0
+		"apple":
+			n = gameplay._apple_node()
+			n.scale = Vector3.ONE * 2.0
+		"wool":
+			n = Node3D.new()
+			for k in 7:
+				var a := TAU * k / 7.0
+				MeshKit.part(n, MeshKit.blob(0.12, 1.0, 0.25, k, 12), MeshKit.surface_mat(Color(0.97, 0.95, 0.9), "cloth", 0.1), Vector3(cos(a) * 0.12, sin(k) * 0.05, sin(a) * 0.12))
+			n.scale = Vector3.ONE * 1.6
+		"flower":
+			n = gameplay._flower_node(1)
+			n.scale = Vector3.ONE * 1.6
+			n.position.y = -0.4
+		"bread":
+			n = Node3D.new()
+			MeshKit.part(n, MeshKit.blob(0.2, 0.6, 0.05, 1, 14), MeshKit.mat(Color(0.82, 0.55, 0.28)), Vector3.ZERO, Vector3.ZERO, Vector3(1.0, 1.0, 1.7))
+		"boat":
+			n = Props.boat(true)
+			n.scale = Vector3.ONE * 0.28
+			n.position.y = -0.5
+		"bike":
+			n = Props.bicycle()
+			n.scale = Vector3.ONE * 0.7
+			n.position.y = -0.5
+		"board":
+			n = Props.noticeboard()
+			n.scale = Vector3.ONE * 0.4
+			n.position.y = -0.5
 		"chest":
 			var ch := Props.chest()
 			n = Node3D.new()

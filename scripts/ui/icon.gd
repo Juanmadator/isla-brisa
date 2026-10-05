@@ -160,6 +160,54 @@ func _draw() -> void:
 			_poly(pts, col, w)
 			_poly(PackedVector2Array([c + Vector2(r * 0.45, 0), c + Vector2(r * 0.95, -r * 0.4), c + Vector2(r * 0.95, r * 0.4)]), col.darkened(0.15), w)
 			draw_circle(c + Vector2(-r * 0.42, -r * 0.06), r * 0.08, OUT)
+		"apple":
+			var col := _col(Color(0.88, 0.2, 0.18))
+			draw_circle(c + Vector2(-r * 0.22, r * 0.12), r * 0.52, col)
+			draw_circle(c + Vector2(r * 0.22, r * 0.12), r * 0.52, col)
+			draw_arc(c + Vector2(-r * 0.22, r * 0.12), r * 0.52, PI * 0.5, PI * 1.6, 16, OUT, w, true)
+			draw_arc(c + Vector2(r * 0.22, r * 0.12), r * 0.52, -PI * 0.6, PI * 0.5, 16, OUT, w, true)
+			draw_line(c + Vector2(0, -r * 0.35), c + Vector2(r * 0.1, -r * 0.8), OUT, w, true)
+			_poly(PackedVector2Array([c + Vector2(r * 0.1, -r * 0.6), c + Vector2(r * 0.55, -r * 0.8), c + Vector2(r * 0.25, -r * 0.45)]), Color(0.4, 0.7, 0.3), w * 0.7)
+		"egg":
+			var pts := PackedVector2Array()
+			for i in 20:
+				var a := TAU * i / 20.0
+				var rr := r * (0.62 if sin(a) > 0.0 else 0.62 - 0.14 * absf(sin(a)))
+				pts.append(c + Vector2(cos(a) * r * 0.55, sin(a) * r * 0.8 * (1.0 if sin(a) > 0.0 else 0.95)) * (rr / (r * 0.62)))
+			_poly(pts, _col(Color(0.96, 0.82, 0.62)), w)
+			draw_circle(c + Vector2(-r * 0.18, -r * 0.25), r * 0.12, Color(1, 1, 1, 0.7))
+		"wool":
+			var col := _col(Color(0.97, 0.95, 0.9))
+			for k in 6:
+				var a := TAU * k / 6.0
+				draw_circle(c + Vector2(cos(a), sin(a)) * r * 0.42, r * 0.34, col)
+				draw_arc(c + Vector2(cos(a), sin(a)) * r * 0.42, r * 0.34, 0, TAU, 14, OUT, w * 0.8, true)
+			draw_circle(c, r * 0.4, col)
+		"flower":
+			var col := _col(Color(1.0, 0.55, 0.7))
+			for k in 5:
+				var a := TAU * k / 5.0 - PI / 2
+				draw_circle(c + Vector2(cos(a), sin(a)) * r * 0.42, r * 0.32, col)
+				draw_arc(c + Vector2(cos(a), sin(a)) * r * 0.42, r * 0.32, 0, TAU, 14, OUT, w * 0.7, true)
+			draw_circle(c, r * 0.24, Color(1.0, 0.85, 0.3))
+		"bread":
+			var pts := PackedVector2Array()
+			for i in 18:
+				var a := PI + PI * i / 17.0
+				pts.append(c + Vector2(cos(a) * r * 0.9, sin(a) * r * 0.62 + r * 0.25))
+			_poly(pts, _col(Color(0.85, 0.58, 0.3)), w)
+			for k in 3:
+				draw_line(c + Vector2(-r * 0.45 + k * r * 0.4, -r * 0.05), c + Vector2(-r * 0.25 + k * r * 0.4, -r * 0.3), OUT, w * 0.7, true)
+		"boat":
+			_poly(PackedVector2Array([c + Vector2(-r * 0.9, r * 0.25), c + Vector2(r * 0.9, r * 0.25), c + Vector2(r * 0.55, r * 0.75), c + Vector2(-r * 0.55, r * 0.75)]), _col(Color(0.3, 0.55, 0.85)), w)
+			_poly(PackedVector2Array([c + Vector2(-r * 0.05, r * 0.15), c + Vector2(-r * 0.05, -r * 0.9), c + Vector2(r * 0.65, r * 0.15)]), Color(0.98, 0.95, 0.88), w)
+		"bike":
+			draw_arc(c + Vector2(-r * 0.5, r * 0.3), r * 0.38, 0, TAU, 20, OUT, w, true)
+			draw_arc(c + Vector2(r * 0.5, r * 0.3), r * 0.38, 0, TAU, 20, OUT, w, true)
+			var col := _col(Color(0.3, 0.5, 0.85))
+			draw_polyline(PackedVector2Array([c + Vector2(-r * 0.5, r * 0.3), c + Vector2(-r * 0.1, -r * 0.3), c + Vector2(r * 0.35, -r * 0.3), c + Vector2(r * 0.5, r * 0.3)]), col, w * 1.3, true)
+			draw_line(c + Vector2(-r * 0.1, -r * 0.3), c + Vector2(0, r * 0.3), col, w * 1.3, true)
+			draw_line(c + Vector2(r * 0.3, -r * 0.55), c + Vector2(r * 0.5, -r * 0.55), OUT, w, true)
 		"dot":
 			draw_circle(c, r * 0.6, _col(Color(1.0, 0.85, 0.3)))
 			draw_arc(c, r * 0.6, 0, TAU, 20, OUT, w, true)

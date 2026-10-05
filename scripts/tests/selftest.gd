@@ -27,6 +27,7 @@ func _ready() -> void:
 	_test_shop_and_save()
 	await _test_economy_and_pets()
 	await _test_fishing()
+	await _test_island_life()
 	await _test_movement()
 	print("IB_TEST %s checks=%d fails=%d" % ["PASS" if _fails == 0 else "FAIL", _checks, _fails])
 	get_tree().quit(1 if _fails > 0 else 0)
@@ -342,6 +343,154 @@ func _test_fishing() -> void:
 		guard += 1
 	_check(int(SaveGame.data["fish"].get("fish_octopus", 0)) == 0, "si no se suelta nunca, el sedal se rompe")
 	f.auto_input = null
+
+
+func _test_island_life() -> void:
+	var gp: Gameplay = main.gameplay
+	var pl: Places = main.world.places
+	var farm: Farm = pl.farm
+	_check(farm != null and farm.sheep.size() == 5 and farm.cows.size() == 2 and farm.chickens.size() == 6, "la granja tiene ovejas, vacas y gallinas")
+	_check(farm.apple_trees.size() == 6, "hay seis manzanos en la granja")
+	for id in ["amparo", "rafa"]:
+		_check(gp.npcs.has(id), "%s vive en la isla" % id)
+	# Huevos: una vez al día
+	SaveGame.data["bag"] = {}
+	gp._collect_eggs()
+	_check(SaveGame.bag_count("egg") == 3, "el gallinero da 3 huevos")
+	gp._collect_eggs()
+	_check(SaveGame.bag_count("egg") == 3, "los huevos solo se recogen una vez al día")
+	# Manzanas: sacudir y recoger
+	gp._shake_tree(0)
+	var apples := []
+	for p in gp.pickups:
+		if p["kind"] == "apple":
+			apples.append(p)
+	_check(apples.size() == 3, "al sacudir un manzano caen 3 manzanas")
+	for a in apples:
+		gp.pickups.erase(a)
+		gp._collect(a)
+	_check(SaveGame.bag_count("apple") == 3, "las manzanas van a la mochila")
+	# Pan para todos (Rafa)
+	_run(gp._talk_rafa())
+	_check(SaveGame.flag("bread_quest"), "Rafa pide huevos y manzanas")
+	SaveGame.bag_add("egg", 1)
+	var shells0 := SaveGame.shells()
+	_run(gp._talk_rafa())
+	_check(SaveGame.flag("bread_done") and SaveGame.bag_count("bread") == 3 and SaveGame.shells() > shells0, "Rafa recompensa con pan y conchas")
+	var st0: float = main.player.stamina
+	main.player.stamina = 0.5
+	SaveGame.bag_take("bread")
+	main.player.refill_stamina()
+	_check(main.player.stamina > st0 - 0.01, "el pan recupera el aguante")
+	# La barca de Tomeu (misión principal)
+	_run(gp._talk_tomeu())
+	_check(SaveGame.flag("boat_quest"), "Tomeu pide ayuda con la vela")
+	_check(gp.npc_has_news("amparo"), "Amparo tiene algo que decir")
+	_run(gp._talk_amparo())
+	_run(gp._talk_amparo())
+	_check(SaveGame.flag("met_amparo") and SaveGame.flag("has_shears"), "Amparo presta las tijeras")
+	for k in 3:
+		gp._shear(k)
+	gp._shear(0)
+	_check(SaveGame.bag_count("wool") == 3, "se esquila cada oveja una vez al día (lana %d)" % SaveGame.bag_count("wool"))
+	_run(gp._talk_valeria())
+	_check(SaveGame.flag("has_sail") and SaveGame.bag_count("wool") == 0, "Valeria cose la vela con la lana")
+	_run(gp._talk_tomeu())
+	_check(SaveGame.flag("has_boat") and gp.my_boat != null, "Tomeu entrega la barca")
+	# Navegar
+	var p: Player = main.player
+	p.board(gp.my_boat)
+	_check(p.state == "boat", "Lía sube a la barca")
+	var b0 := p.global_position
+	p.autopilot = {"move": Vector2(0, -1)}
+	await _frames(150)
+	p.autopilot = {"move": Vector2.ZERO}
+	var sailed := Vector2(p.global_position.x - b0.x, p.global_position.z - b0.z).length()
+	_check(p.state == "boat" and sailed > 6.0, "la barca navega (%.1f m)" % sailed)
+	_check(absf(p.global_position.y - p.water_surface()) < 0.6, "la barca flota en la superficie")
+	_check(gp.my_boat.global_position.distance_to(p.global_position) < 2.0, "la barca va con Lía")
+	# Volver al muelle y bajar
+	var dock_boat: Vector3 = pl.tomeu_boat.global_position
+	p.global_position = Vector3(dock_boat.x - 1.5, 0.0, dock_boat.z - 2.0)
+	await _frames(5)
+	var spot := p.landing_spot()
+	_check(spot != Vector3.INF, "junto al muelle hay sitio para bajar")
+	if spot != Vector3.INF:
+		p.leave_boat(spot)
+		gp._store_boat()
+	await _frames(10)
+	_check(p.state != "boat", "Lía baja de la barca")
+	# Regata
+	var course := gp.regatta_course()
+	var deep := true
+	for c in course:
+		deep = deep and main.world.island.height_at(c.x, c.z) < -2.0
+	_check(course.size() == 6 and deep, "las boyas de la regata están en agua profunda")
+	gp.start_regatta()
+	_check(gp.regatta_active() and p.state == "boat", "la regata empieza en la barca")
+	await _frames(240)
+	for c in course:
+		p.global_position = Vector3(c.x + 2.0, 0.0, c.z)
+		await _frames(4)
+	_check(SaveGame.flag("regatta_won") and SaveGame.owns("hat_captain"), "pasar por las seis boyas gana la regata")
+	p.leave_boat(main.world.places.anchor("dock_end"))
+	# Bici de Bruno
+	SaveGame.data["flags"]["parcels_done"] = 3
+	SaveGame.data["flags"]["parcel_to"] = ""
+	_run(gp._talk_bruno())
+	_check(SaveGame.flag("has_bike") and p.has_bike, "Bruno regala la bici tras tres repartos")
+	var start: Vector3 = pl.anchor("village") + Vector3(0, 0.5, 14)
+	p.teleport(start)
+	await _frames(20)
+	gp.toggle_bike()
+	_check(p.on_bike, "V sube a la bici")
+	var s0 := p.global_position
+	p.cam_yaw = -PI * 0.5
+	p.autopilot = {"move": Vector2(0, -1)}
+	await _frames(60)
+	p.autopilot = {"move": Vector2.ZERO}
+	var rode := Vector2(p.global_position.x - s0.x, p.global_position.z - s0.z).length()
+	_check(rode > 8.5, "en bici se va más rápido (%.1f m en 1 s)" % rode)
+	gp.toggle_bike()
+	_check(not p.on_bike, "V baja de la bici")
+	# Tablón de encargos
+	var reqs := gp.board_requests()
+	_check(reqs.size() == 3, "el tablón tiene tres encargos")
+	var r: Dictionary = reqs[0]
+	if r["item"] == "fish":
+		SaveGame.data["fish"]["fish_sardine"] = r["n"]
+	else:
+		SaveGame.bag_add(r["item"], r["n"])
+	var s1 := SaveGame.shells()
+	_check(gp.deliver_request(0) and SaveGame.shells() == s1 + r["reward"], "entregar un encargo del tablón paga")
+	_check(not gp.deliver_request(0), "cada encargo se entrega una vez")
+	# Día nuevo: lo diario vuelve
+	var d0 := SaveGame.day()
+	gp._on_new_day()
+	_check(SaveGame.day() == d0 + 1 and not SaveGame.daily_done("eggs") and not SaveGame.daily_done("board_0"), "al amanecer se renuevan huevos y encargos")
+	var flowers := 0
+	for fp in gp.pickups:
+		if fp["kind"] == "flower":
+			flowers += 1
+	_check(flowers >= 30, "hay flores silvestres en los prados (%d)" % flowers)
+	# Ramo para Rosa y ovejas perdidas
+	_run(gp._talk_rosa())
+	_check(SaveGame.flag("flowers_quest"), "Rosa pide un ramo")
+	SaveGame.bag_add("flower", 8)
+	_run(gp._talk_rosa())
+	_check(SaveGame.flag("flowers_done") and SaveGame.owns("scarf_rainbow"), "Rosa recompensa el ramo")
+	_run(gp._talk_amparo())
+	_check(SaveGame.flag("sheep_quest"), "Amparo pide buscar las ovejas")
+	for id in Gameplay.LOST_SHEEP:
+		SaveGame.collect(id)
+	_run(gp._talk_amparo())
+	_check(SaveGame.flag("sheep_done") and SaveGame.owns("outfit_farmer"), "Amparo recompensa el rebaño")
+	for qq in gp.quests():
+		for stp in qq["steps"]:
+			_check(stp.size() > 2 and String(stp[2]).length() > 20, "el paso «%s» tiene pista" % stp[0])
+	main.state = "play"
+	p.locked = false
+	gp.locked = false
 
 
 func _frames(n: int) -> void:

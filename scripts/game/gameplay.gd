@@ -48,6 +48,13 @@ var pet: Pet
 var _pet_interact: Dictionary
 var fishing: Fishing
 var _fish_interact := {}
+## Barca del jugador (cuando ya la tiene) y su punto para subir.
+var my_boat: Node3D
+var _boat_interact := {}
+## Regata: {buoys, idx, time, countdown, state}
+var regatta := {}
+## Ovejas del prado: punto de interacción de cada una.
+var _sheep_interacts: Array = []
 var _npc_interacts := {}
 var _pen_t := {}
 
@@ -69,6 +76,15 @@ func setup(w: World, p: Player) -> void:
 	_setup_fireflies()
 	_setup_benches()
 	_setup_fishing()
+	if player.on_bike:
+		player.set_bike(false)
+	player.boat = null
+	_setup_farm()
+	_setup_board()
+	_spawn_daily()
+	_spawn_lost_sheep()
+	refresh_boat()
+	world.sky.day_passed.connect(_on_new_day)
 	refresh_pet()
 	apply_progress()
 
@@ -234,6 +250,18 @@ func _talk_tomeu() -> Dictionary:
 			maybe_showcase("rod", "item", null, func() -> void:
 				banner.emit("¡Caña de pescar!", "Mira hacia el agua y pulsa E")
 				Audio.play("item"))}
+	var boat_talk := _talk_tomeu_boat()
+	var sale := _tomeu_fish_sale()
+	if not sale.is_empty() and not boat_talk.is_empty():
+		# Primero compra el pescado y luego habla de la barca, en la misma conversación.
+		var sale_after: Callable = sale["after"]
+		var boat_after: Callable = boat_talk.get("after", Callable())
+		return {"lines": sale["lines"] + boat_talk["lines"], "after": func() -> void:
+			sale_after.call()
+			if boat_after.is_valid():
+				boat_after.call()}
+	if not boat_talk.is_empty():
+		return boat_talk
 	if fish_species() >= Catalog.FISH.size() and not SaveGame.flag("fish_done"):
 		return {"lines": [
 			_l("Tomeu", "¿Has pescado de todo? ¿¡También la Brisa dorada!? Cuarenta años intentándolo...") ,
@@ -244,16 +272,8 @@ func _talk_tomeu() -> Dictionary:
 			reward(100, "Pescadora de Isla Brisa")
 			banner.emit("¡Bufanda dorada!", "Póntela en Esc → Aspecto")
 			Audio.play("quest_done")}
-	var value := fish_value()
-	if value > 0:
-		var count := 0
-		for id in SaveGame.data["fish"]:
-			count += int(SaveGame.data["fish"][id])
-		return {"lines": [
-			_l("Tomeu", "¡Vaya cesta! %d %s. Te doy %d conchas por todo, ¿trato hecho?" % [count, "pieza" if count == 1 else "piezas", value]),
-		], "after": func() -> void:
-			SaveGame.data["fish"] = {}
-			reward(value, "Venta de pescado")}
+	if not sale.is_empty():
+		return sale
 	if SaveGame.flag("ending_seen"):
 		return {"lines": [_l("Tomeu", "¡Mira esas velas, hinchadas como panzas! Gracias a ti, mañana salgo a pescar.")]}
 	if lit_count() > 0:
@@ -275,6 +295,9 @@ func _talk_rosa() -> Dictionary:
 			SaveGame.set_flag("met_rosa")
 			toast.emit("Nuevo encargo: La paravela perdida", "quest")
 			Audio.play("quest_new")}
+	var bouquet := _talk_rosa_flowers()
+	if not bouquet.is_empty():
+		return bouquet
 	if SaveGame.flag("ending_seen"):
 		return {"lines": [_l("Rosa", "Gracias, Lía. Isla Brisa vuelve a respirar. Esta noche haremos una fiesta de cometas en tu honor.")]}
 	if SaveGame.flag("lit_faro_summit"):
@@ -362,6 +385,16 @@ func _talk_bruno() -> Dictionary:
 	var to := parcel_target()
 	if to != "":
 		return {"lines": [_l("Bruno", "El paquete es para %s. Está %s." % [Catalog.NPCS[to]["name"], describe_location(npcs[to].position)])]}
+	if SaveGame.counter("parcels_done") >= 3 and not SaveGame.flag("has_bike"):
+		return {"lines": [
+			_l("Bruno", "¡Tres repartos sin perder ni un sello! Eres la mejor cartera que ha tenido la isla."),
+			_l("Bruno", "Toma mi bici de repuesto. Con ella llegarás a cualquier buzón en un periquete. Pulsa V para subir y bajar."),
+		], "after": func() -> void:
+			SaveGame.set_flag("has_bike")
+			player.has_bike = true
+			maybe_showcase("bike", "item", null, func() -> void:
+				banner.emit("¡Bici de cartero!", "Pulsa V para subir o bajar")
+				Audio.play("item"))}
 	var next := _pick_parcel_target()
 	var who: String = Catalog.NPCS[next]["name"]
 	return {"lines": [
@@ -440,6 +473,18 @@ func _talk_valeria() -> Dictionary:
 		], "after": func() -> void:
 			SaveGame.set_flag("met_valeria")
 			open_shop.emit("tailor")}
+	if SaveGame.flag("boat_quest") and not SaveGame.flag("has_sail"):
+		if SaveGame.bag_count("wool") >= 3:
+			return {"lines": [
+				_l("Valeria", "¿Lana para la vela de Tomeu? ¡Qué suave! Dame un momento..."),
+				_l("Valeria", "Hilo, aguja, un poco de cera para que no entre el agua... ¡Lista! La vela más bonita del puerto."),
+			], "after": func() -> void:
+				SaveGame.bag_take("wool", 3)
+				SaveGame.set_flag("has_sail")
+				toast.emit("Vela nueva: llévasela a Tomeu", "boat")
+				Audio.play("quest_done", 0.0, -4.0)}
+		return {"lines": [_l("Valeria", "Para coser una vela nueva necesito 3 ovillos de lana (tienes %d). Las ovejas de Amparo tienen de sobra." % SaveGame.bag_count("wool"))],
+			"after": func() -> void: open_shop.emit("tailor")}
 	return {"lines": [_l("Valeria", "¿Vienes a renovar el armario? Pasa, pasa.")],
 		"after": func() -> void: open_shop.emit("tailor")}
 
@@ -560,6 +605,12 @@ func _talk_tito() -> Dictionary:
 func npc_has_news(id: String) -> bool:
 	if parcel_target() == id:
 		return true
+	if id == "tomeu" and (_boat_news() or (SaveGame.flag("has_boat") and not SaveGame.flag("regatta_won"))):
+		return true
+	if id == "rosa" and SaveGame.flag("met_rosa") and SaveGame.flag("has_glider") and (not SaveGame.flag("flowers_quest") or (SaveGame.bag_count("flower") >= 8 and not SaveGame.flag("flowers_done"))):
+		return true
+	if id == "bruno" and SaveGame.counter("parcels_done") >= 3 and not SaveGame.flag("has_bike"):
+		return true
 	match id:
 		"tomeu":
 			return not SaveGame.flag("intro_done") or (SaveGame.flag("met_rosa") and not SaveGame.flag("has_rod")) \
@@ -579,7 +630,14 @@ func npc_has_news(id: String) -> bool:
 		"olga":
 			return not SaveGame.flag("met_olga") or (SaveGame.flag("letters_taken") and not SaveGame.flag("letter_olga"))
 		"valeria":
-			return SaveGame.flag("met_rosa") and not SaveGame.flag("met_valeria")
+			return (SaveGame.flag("met_rosa") and not SaveGame.flag("met_valeria")) \
+				or (SaveGame.flag("boat_quest") and not SaveGame.flag("has_sail") and SaveGame.bag_count("wool") >= 3)
+		"amparo":
+			return not SaveGame.flag("met_amparo") or (SaveGame.flag("boat_quest") and not SaveGame.flag("has_shears")) \
+				or (SaveGame.flag("sheep_quest") and SaveGame.count_collected("lostsheep_") >= 3 and not SaveGame.flag("sheep_done"))
+		"rafa":
+			return not SaveGame.flag("met_rafa") or (SaveGame.flag("bread_quest") and not SaveGame.flag("bread_done") \
+				and SaveGame.bag_count("egg") >= 4 and SaveGame.bag_count("apple") >= 3)
 		"lola":
 			return SaveGame.flag("met_rosa") and not SaveGame.flag("met_lola")
 	return parcel_target() == id
@@ -838,7 +896,10 @@ func _feather_node() -> Node3D:
 
 func _collect(p: Dictionary) -> void:
 	var id: String = p["id"]
-	SaveGame.collect(id)
+	if p.get("daily", false):
+		SaveGame.set_daily(id)
+	else:
+		SaveGame.collect(id)
 	var node: Node3D = p["node"]
 	var tw := node.create_tween().set_parallel(true)
 	tw.tween_property(node, "position:y", node.position.y + 1.2, 0.35)
@@ -868,6 +929,15 @@ func _collect_effect(p: Dictionary) -> void:
 			player.play_action("pickup", 0.45, p["pos"])
 			Audio.play("item", 0.0, -4.0)
 			toast.emit("Seta brillante (%d/5)" % SaveGame.count_collected("mushroom_"), "mushroom")
+		"flower":
+			player.play_action("pickup", 0.4, p["pos"])
+			SaveGame.bag_add("flower")
+			Audio.play("item", 0.1, -6.0, 1.2)
+			toast.emit("Flor silvestre (%d en la mochila)" % SaveGame.bag_count("flower"), "flower")
+		"apple":
+			SaveGame.bag_add("apple")
+			Audio.play("shell", 0.05, -4.0, 0.8)
+			toast.emit("Manzana (%d en la mochila)" % SaveGame.bag_count("apple"), "apple")
 		"kite":
 			SaveGame.set_flag("has_kite")
 			Audio.play("item")
@@ -1262,6 +1332,17 @@ func interact() -> bool:
 	if fishing and fishing.active():
 		fishing.press()
 		return true
+	if player.state == "boat":
+		if not regatta.is_empty():
+			return true
+		var spot := player.landing_spot()
+		if spot == Vector3.INF:
+			toast.emit("Acércate a la orilla o al muelle para bajar", "boat")
+			Audio.play("error", 0.0, -8.0)
+			return true
+		player.leave_boat(spot)
+		_store_boat()
+		return true
 	if current.is_empty():
 		return false
 	var a: Callable = current["action"]
@@ -1330,6 +1411,7 @@ func _update_world_life(dt: float) -> void:
 		_fireflies.emitting = night > 0.5
 		_fireflies.global_position = player.global_position + Vector3(0, 1.5, 0)
 	_animate_pen(dt)
+	_update_life(dt)
 
 
 ## Los animales del cercado de Lola pasean, se paran y dan saltitos.
@@ -1409,6 +1491,7 @@ func _setup_fireflies() -> void:
 ## Aplica el estado guardado: paravela, aguante, avisos de vecinos.
 func apply_progress() -> void:
 	player.has_glider = SaveGame.flag("has_glider")
+	player.has_bike = SaveGame.flag("has_bike")
 	player.stamina_max = 3.0 + SaveGame.feathers()
 	player.stamina = minf(player.stamina, player.stamina_max)
 	for id in npcs:
@@ -1512,6 +1595,7 @@ func quests() -> Array:
 				["Recoge setas brillantes (%d/5)" % m, m >= 5, "Crecen en el suelo del Bosque Susurro, al oeste de la isla. Son azules y brillan; de noche se ven desde lejos."],
 				["Llévaselas a Ulises", f.call("ulises_done"), "Ulises vive en la cabaña de la orilla este del Lago Espejo."]],
 			"target": target})
+	_life_quests(q)
 	if f.call("has_rod") and not f.call("fish_done"):
 		var n := fish_species()
 		var all := n >= Catalog.FISH.size()
@@ -1673,3 +1757,672 @@ func _kitten_hint() -> String:
 		"kitten_forest": "Le gusta esconderse entre los árboles. Escucha bien: maúlla mucho.",
 		"kitten_ruins": "Es el más valiente: seguro que está en lo más alto de un arco de piedra."}
 	return "Creo que hay uno %s. %s" % [describe_location(pos), extra[best_id]]
+
+
+# --- Granja, mochila y cosas de cada día --------------------------------------------------
+
+## Vecinos nuevos: Amparo (granja) y Rafa (panadería).
+func _talk_amparo() -> Dictionary:
+	if not SaveGame.flag("met_amparo"):
+		return {"lines": [
+			_l("Amparo", "¡Buenas! Soy Amparo. Bienvenida a la Granja del Prado: ovejas, vacas, gallinas y el mejor huerto de la isla."),
+			_l("Amparo", "Coge lo que necesites: los huevos del gallinero y las manzanas de los manzanos. Sacúdelos y caerán solas."),
+			_l("Amparo", "Cada mañana hay más. Y en el tablón de la plaza los vecinos siempre piden cosas de la granja, ¡y pagan bien!"),
+		], "after": func() -> void:
+			SaveGame.set_flag("met_amparo")
+			maybe_showcase("board", "item", null, func() -> void: pass)}
+	if SaveGame.flag("boat_quest") and not SaveGame.flag("has_shears"):
+		return {"lines": [
+			_l("Amparo", "¿Lana para la vela de Tomeu? ¡Mis ovejas tienen de sobra! Toma mis tijeras de esquilar."),
+			_l("Amparo", "Acércate a una oveja y pulsa E. A cada una se le puede esquilar una vez al día. Valeria necesitará tres ovillos."),
+		], "after": func() -> void:
+			SaveGame.set_flag("has_shears")
+			toast.emit("Tijeras de esquilar: esquila 3 ovejas", "wool")
+			Audio.play("item")}
+	if not SaveGame.flag("sheep_quest"):
+		return {"lines": [
+			_l("Amparo", "Ay, Lía, ¿me harías un favor? Con el aire quieto, tres ovejas se escaparon buscando hierba fresca."),
+			_l("Amparo", "Una se fue hacia el lago, otra hacia la playa del este y la más traviesa, hacia el Peñón. Si las encuentras, tráelas."),
+		], "after": func() -> void:
+			SaveGame.set_flag("sheep_quest")
+			toast.emit("Nuevo encargo: El rebaño perdido", "wool")
+			Audio.play("quest_new")}
+	var found := SaveGame.count_collected("lostsheep_")
+	if found >= 3 and not SaveGame.flag("sheep_done"):
+		return {"lines": [
+			_l("Amparo", "¡Las tres en casa! Ya me veía haciendo jerséis con lana de menos."),
+			_l("Amparo", "Toma: conchas por la ayuda y un peto de granjera, que te queda que ni pintado."),
+		], "after": func() -> void:
+			SaveGame.set_flag("sheep_done")
+			SaveGame.give("outfit_farmer")
+			reward(Catalog.REWARDS["lost_sheep"], "El rebaño perdido")
+			banner.emit("¡Peto de granjera!", "Póntelo en Esc → Aspecto")
+			Audio.play("quest_done")}
+	if found < 3 and SaveGame.flag("sheep_quest"):
+		return {"lines": [_l("Amparo", "Me faltan %d ovejas. Búscalas cerca del lago, de la playa del este y del Peñón." % (3 - found))]}
+	return {"lines": [_l("Amparo", "Las gallinas ponen cada mañana y los manzanos vuelven a dar fruta. ¡Coge lo que quieras!")]}
+
+
+func _talk_rafa() -> Dictionary:
+	if not SaveGame.flag("met_rafa"):
+		return {"lines": [
+			_l("Rafa", "¡Hombre, Lía! Huele bien, ¿eh? Soy Rafa, el panadero. Llevo horneando desde las cinco."),
+			_l("Rafa", "Quiero hacer una tarta de manzana para todo el pueblo, pero no tengo ni huevos ni manzanas."),
+			_l("Rafa", "Si me traes 4 huevos y 3 manzanas de la granja de Amparo, te enseñaré mi pan. Te deja como nueva."),
+		], "after": func() -> void:
+			SaveGame.set_flag("met_rafa")
+			SaveGame.set_flag("bread_quest")
+			toast.emit("Nuevo encargo: Pan para todos", "bread")
+			Audio.play("quest_new")}
+	if not SaveGame.flag("bread_done"):
+		if SaveGame.bag_count("egg") >= 4 and SaveGame.bag_count("apple") >= 3:
+			return {"lines": [
+				_l("Rafa", "¡Huevos y manzanas! Esta tarde todo el pueblo comerá tarta. Gracias, Lía."),
+				_l("Rafa", "Toma tus conchas y estas tres hogazas. Cuando te quedes sin aguante, cómete una (Esc → Mochila)."),
+			], "after": func() -> void:
+				SaveGame.bag_take("egg", 4)
+				SaveGame.bag_take("apple", 3)
+				SaveGame.set_flag("bread_done")
+				SaveGame.bag_add("bread", 3)
+				reward(Catalog.REWARDS["bread"], "Pan para todos")
+				Audio.play("quest_done")}
+		return {"lines": [_l("Rafa", "Me hacen falta 4 huevos (tienes %d) y 3 manzanas (tienes %d). La granja de Amparo está en el prado, al norte." % [SaveGame.bag_count("egg"), SaveGame.bag_count("apple")])]}
+	return {"lines": [_l("Rafa", "¿Un poco de pan para el camino? Recién salido del horno.")],
+		"after": func() -> void: open_shop.emit("bakery")}
+
+
+func _setup_farm() -> void:
+	var farm: Farm = places.farm
+	if farm == null:
+		return
+	_add_interact("coop", farm.coop_pos, 2.6,
+		func() -> String: return "Recoger huevos" if not SaveGame.daily_done("eggs") else "Mirar el gallinero",
+		func() -> void: _collect_eggs())
+	for k in farm.apple_trees.size():
+		var tree: Dictionary = farm.apple_trees[k]
+		var tk := k
+		_add_interact("tree_%d" % k, tree["pos"], 2.4,
+			func() -> String: return "Sacudir el manzano",
+			func() -> void: _shake_tree(tk),
+			func() -> bool: return not SaveGame.daily_done("tree_%d" % tk))
+	for k in farm.sheep.size():
+		var sk := k
+		var it := _add_interact("sheep_%d" % k, Vector3.ZERO, 1.8,
+			func() -> String: return "Esquilar la oveja" if SaveGame.flag("has_shears") else "Acariciar la oveja",
+			func() -> void: _shear(sk))
+		_sheep_interacts.append(it)
+	_refresh_farm()
+
+
+## Aspecto de la granja según lo hecho hoy (manzanas en los árboles, ovejas esquiladas).
+func _refresh_farm() -> void:
+	var farm: Farm = places.farm
+	if farm == null:
+		return
+	for k in farm.apple_trees.size():
+		(farm.apple_trees[k]["fruit"] as Node3D).visible = not SaveGame.daily_done("tree_%d" % k)
+	for k in farm.sheep.size():
+		var wool := (farm.sheep[k]["model"] as Node3D).get_node("Body/Wool") as Node3D
+		wool.scale = Vector3.ONE * (0.72 if SaveGame.daily_done("shear_%d" % k) else 1.0)
+
+
+func _collect_eggs() -> void:
+	var farm: Farm = places.farm
+	player.play_action("kneel", 0.8, farm.coop_pos)
+	if SaveGame.daily_done("eggs"):
+		toast.emit("Hoy ya has recogido los huevos. Vuelve mañana.", "egg")
+		return
+	SaveGame.set_daily("eggs")
+	SaveGame.bag_add("egg", 3)
+	maybe_showcase("egg", "item", null, func() -> void:
+		toast.emit("+3 huevos (%d en la mochila)" % SaveGame.bag_count("egg"), "egg")
+		Audio.play("item", 0.05, -4.0))
+
+
+func _shake_tree(k: int) -> void:
+	var farm: Farm = places.farm
+	var tree: Dictionary = farm.apple_trees[k]
+	SaveGame.set_daily("tree_%d" % k)
+	(tree["fruit"] as Node3D).visible = false
+	var root: Node3D = tree["node"]
+	var tw := root.create_tween()
+	for i in 4:
+		tw.tween_property(root, "rotation:z", 0.06 * (1.0 if i % 2 == 0 else -1.0), 0.07)
+	tw.tween_property(root, "rotation:z", 0.0, 0.08)
+	Audio.play("dust", 0.1, -6.0)
+	var base: Vector3 = tree["pos"]
+	for i in 3:
+		var a := TAU * i / 3.0 + randf()
+		var q := Vector2(base.x + cos(a) * 1.6, base.z + sin(a) * 1.6)
+		var pos := island.ground(q, 0.15)
+		var n := _apple_node()
+		var id := "apple_%d_%d" % [k, i]
+		_add_pickup(id, "apple", n, pos, 1.2)
+		pickups[-1]["daily"] = true
+		n.position = pos + Vector3(0, 2.6, 0)
+		var ft := n.create_tween()
+		ft.tween_property(n, "position:y", pos.y, 0.45 + i * 0.08).set_trans(Tween.TRANS_BOUNCE).set_ease(Tween.EASE_OUT)
+
+
+func _apple_node() -> Node3D:
+	var n := Node3D.new()
+	MeshKit.part(n, MeshKit.sphere(0.16, 12), MeshKit.mat(Color(0.85, 0.18, 0.15)), Vector3.ZERO)
+	MeshKit.part(n, MeshKit.cylinder(0.012, 0.012, 0.1, 5), MeshKit.mat(Props.WOOD_DARK), Vector3(0, 0.17, 0))
+	MeshKit.part(n, MeshKit.blob(0.05, 0.3, 0.0, 0, 8), MeshKit.mat(Color(0.4, 0.7, 0.3)), Vector3(0.05, 0.19, 0), Vector3(0, 0, -30))
+	return n
+
+
+func _shear(k: int) -> void:
+	var farm: Farm = places.farm
+	var m: Node3D = farm.sheep[k]["model"]
+	if not SaveGame.flag("has_shears"):
+		player.play_action("kneel", 0.8, m.global_position)
+		Fx.burst(self, m.global_position + Vector3(0, 0.9, 0), Color(1.0, 0.5, 0.6), 6, 1.4, 0.12, 0.8, 1.0, -0.5)
+		return
+	if SaveGame.daily_done("shear_%d" % k):
+		toast.emit("A esta oveja ya la has esquilado hoy", "wool")
+		return
+	player.play_action("kneel", 1.0, m.global_position)
+	SaveGame.set_daily("shear_%d" % k)
+	SaveGame.bag_add("wool")
+	_refresh_farm()
+	Fx.burst(self, m.global_position + Vector3(0, 0.7, 0), Color(0.98, 0.96, 0.92), 14, 2.0, 0.16, 0.9, 0.6, -1.0)
+	maybe_showcase("wool", "item", null, func() -> void:
+		toast.emit("+1 lana (%d en la mochila)" % SaveGame.bag_count("wool"), "wool")
+		Audio.play("item", 0.05, -4.0))
+
+
+## Flores silvestres: puntos fijos por los prados que vuelven a florecer cada día.
+func _flower_spots() -> Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = 777
+	var out := []
+	var tries := 0
+	while out.size() < 36 and tries < 20000:
+		tries += 1
+		var p := Vector2(rng.randf_range(-220, 220), rng.randf_range(-120, 230))
+		var b := island.biome_at(p.x, p.y)
+		if b != Island.Biome.GRASS and b != Island.Biome.MEADOW:
+			continue
+		if island.normal_at(p.x, p.y).y < 0.9 or island.path_distance(p) < 3.0 or p.distance_to(Island.VILLAGE) < 40.0:
+			continue
+		var ok := true
+		for q in out:
+			if Vector2(q.x, q.z).distance_to(p) < 14.0:
+				ok = false
+				break
+		if ok:
+			out.append(island.ground(p, 0.05))
+	return out
+
+
+func _flower_node(seed_value: int) -> Node3D:
+	var n := Node3D.new()
+	var cols := [Color(1.0, 0.45, 0.6), Color(1.0, 0.85, 0.3), Color(0.7, 0.55, 1.0), Color(1.0, 1.0, 1.0)]
+	var col: Color = cols[seed_value % cols.size()]
+	for k in 3:
+		var a := TAU * k / 3.0 + seed_value
+		var stem := Node3D.new()
+		stem.position = Vector3(cos(a) * 0.12, 0, sin(a) * 0.12)
+		stem.rotation = Vector3(cos(a) * 0.15, 0, sin(a) * 0.15)
+		n.add_child(stem)
+		MeshKit.part(stem, MeshKit.cylinder(0.012, 0.016, 0.45, 5), MeshKit.mat(Color(0.35, 0.6, 0.28)), Vector3(0, 0.22, 0))
+		for p in 5:
+			var pa := TAU * p / 5.0
+			MeshKit.part(stem, MeshKit.sphere(0.045, 8), MeshKit.mat(col), Vector3(cos(pa) * 0.05, 0.47, sin(pa) * 0.05), Vector3.ZERO, Vector3(1.0, 0.5, 1.0))
+		MeshKit.part(stem, MeshKit.sphere(0.03, 8), MeshKit.mat(Color(1.0, 0.85, 0.3)), Vector3(0, 0.48, 0))
+	MeshKit.part(n, MeshKit.blob(0.14, 0.4, 0.2, seed_value, 8), MeshKit.mat(Color(0.38, 0.62, 0.3)), Vector3(0, 0.04, 0))
+	return n
+
+
+## Lo que se renueva cada día: flores. (Las manzanas caen al sacudir los manzanos.)
+func _spawn_daily() -> void:
+	var spots := _flower_spots()
+	for k in spots.size():
+		var id := "flower_%d" % k
+		if SaveGame.daily_done(id) or _has_pickup(id):
+			continue
+		_add_pickup(id, "flower", _flower_node(k), spots[k], 1.3)
+		pickups[-1]["daily"] = true
+
+
+func _has_pickup(id: String) -> bool:
+	for p in pickups:
+		if p["id"] == id and is_instance_valid(p["node"]):
+			return true
+	return false
+
+
+func _on_new_day() -> void:
+	SaveGame.next_day()
+	# Las manzanas que nadie recogió se pudren; vuelven a salir flores y fruta.
+	for i in range(pickups.size() - 1, -1, -1):
+		var p: Dictionary = pickups[i]
+		if p["kind"] == "apple":
+			(p["node"] as Node3D).queue_free()
+			pickups.remove_at(i)
+	_spawn_daily()
+	_refresh_farm()
+	toast.emit("Día %d: hay encargos nuevos en el tablón" % (SaveGame.day() + 1), "quest")
+	SaveGame.save_game()
+
+
+# --- Ovejas perdidas ----------------------------------------------------------------------
+
+const LOST_SHEEP := {"lostsheep_lake": "@-104,-6", "lostsheep_beach": "@168,150", "lostsheep_penon": "@-118,176"}
+
+
+func _spawn_lost_sheep() -> void:
+	for id in LOST_SHEEP:
+		if SaveGame.is_collected(id):
+			continue
+		var pos := resolve(LOST_SHEEP[id])
+		var m := Animals.sheep(id.length())
+		add_child(m)
+		m.position = pos
+		m.rotation.y = randf() * TAU
+		var sid: String = id
+		_add_interact(id, pos, 2.6,
+			func() -> String: return "Llevar la oveja a casa",
+			func() -> void: _rescue_sheep(sid, m),
+			func() -> bool: return SaveGame.flag("sheep_quest"))
+
+
+func _rescue_sheep(id: String, m: Node3D) -> void:
+	_remove_interact(id)
+	SaveGame.collect(id)
+	player.play_action("kneel", 0.8, m.global_position)
+	var tw := m.create_tween()
+	tw.tween_property(m, "position:y", m.position.y + 0.5, 0.2).set_ease(Tween.EASE_OUT)
+	tw.tween_property(m, "scale", Vector3.ONE * 0.01, 0.35)
+	tw.tween_callback(m.queue_free)
+	Audio.play("meet", 0.1, -4.0)
+	toast.emit("¡Beee! La oveja vuelve a la granja (%d/3)" % SaveGame.count_collected("lostsheep_"), "wool")
+	SaveGame.save_game()
+
+
+# --- Ramo de flores para Rosa ------------------------------------------------------------
+
+func _talk_rosa_flowers() -> Dictionary:
+	if not SaveGame.flag("has_glider") or SaveGame.flag("flowers_done"):
+		return {}
+	if not SaveGame.flag("flowers_quest"):
+		return {"lines": [
+			_l("Rosa", "Por cierto, Lía: cuando vuelva el viento haremos una fiesta y quiero llenar la plaza de flores."),
+			_l("Rosa", "¿Me traerías 8 flores silvestres? Crecen por los prados y vuelven a salir cada mañana."),
+		], "after": func() -> void:
+			SaveGame.set_flag("flowers_quest")
+			toast.emit("Nuevo encargo: Ramo para la fiesta", "flower")
+			Audio.play("quest_new")}
+	if SaveGame.bag_count("flower") >= 8:
+		return {"lines": [
+			_l("Rosa", "¡Qué ramo tan precioso! La plaza va a parecer un jardín."),
+			_l("Rosa", "Toma, unas conchas del ayuntamiento y una bufanda arcoíris que tejió Valeria para la fiesta."),
+		], "after": func() -> void:
+			SaveGame.bag_take("flower", 8)
+			SaveGame.set_flag("flowers_done")
+			SaveGame.give("scarf_rainbow")
+			reward(Catalog.REWARDS["flowers"], "Ramo para la fiesta")
+			Audio.play("quest_done")}
+	return {}
+
+
+# --- Tablón de encargos del día ------------------------------------------------------------
+
+const BOARD_WHO := ["rosa", "valeria", "rafa", "amparo", "ulises", "olga", "pia", "marisol", "gema", "tito", "nerea", "lola"]
+
+
+func _setup_board() -> void:
+	_add_interact("board", places.anchor("noticeboard"), 2.4,
+		func() -> String: return "Mirar el tablón de encargos",
+		func() -> void:
+			maybe_showcase("board", "item", null, func() -> void: open_shop.emit("board")))
+
+
+## Encargos de hoy (3): [{item, n, reward, who, done}]. Salen siempre iguales para el mismo día.
+func board_requests() -> Array:
+	var rng := RandomNumberGenerator.new()
+	rng.seed = SaveGame.day() * 7919 + 13
+	var pool := ["apple", "egg", "flower", "flower"]
+	if SaveGame.flag("has_shears"):
+		pool.append("wool")
+	if SaveGame.flag("has_rod"):
+		pool.append_array(["fish", "fish"])
+	if SaveGame.flag("bread_done"):
+		pool.append("bread")
+	var out := []
+	var used := {}
+	for i in 3:
+		var item: String = pool[rng.randi() % pool.size()]
+		var tries := 0
+		while used.has(item) and tries < 10:
+			item = pool[rng.randi() % pool.size()]
+			tries += 1
+		used[item] = true
+		var n := rng.randi_range(2, 5) if item in ["apple", "flower"] else rng.randi_range(1, 3)
+		var value := 5 if item == "fish" else (8 if item == "bread" else int(Catalog.BAG[item][2]))
+		out.append({"item": item, "n": n, "reward": n * value * 2 + 6, "who": BOARD_WHO[rng.randi() % BOARD_WHO.size()],
+			"done": SaveGame.daily_done("board_%d" % i)})
+	return out
+
+
+## Cuántas unidades de `item` tiene Lía (los peces cuentan los de la cesta).
+func have_item(item: String) -> int:
+	if item == "fish":
+		var n := 0
+		for id in SaveGame.data["fish"]:
+			if id != "fish_boot":
+				n += int(SaveGame.data["fish"][id])
+		return n
+	return SaveGame.bag_count(item)
+
+
+func item_label(item: String, n: int) -> String:
+	if item == "fish":
+		return "%d %s" % [n, "pez" if n == 1 else "peces"]
+	var name: String = Catalog.BAG[item][0]
+	return "%d × %s" % [n, name]
+
+
+## Entrega el encargo `i` del tablón si hay bastante. Devuelve si se pudo.
+func deliver_request(i: int) -> bool:
+	var reqs := board_requests()
+	var r: Dictionary = reqs[i]
+	if r["done"] or have_item(r["item"]) < r["n"]:
+		return false
+	var item: String = r["item"]
+	if item == "fish":
+		var left: int = r["n"]
+		for id in SaveGame.data["fish"].keys():
+			if id == "fish_boot":
+				continue
+			while left > 0 and int(SaveGame.data["fish"][id]) > 0:
+				SaveGame.data["fish"][id] = int(SaveGame.data["fish"][id]) - 1
+				left -= 1
+	else:
+		SaveGame.bag_take(item, r["n"])
+	SaveGame.set_daily("board_%d" % i)
+	SaveGame.add_counter("board_done")
+	reward(r["reward"], "Encargo para %s" % Catalog.NPCS[r["who"]]["name"])
+	return true
+
+
+# --- Barca, regata y bici --------------------------------------------------------------------
+
+func _boat_news() -> bool:
+	if SaveGame.flag("has_boat"):
+		return false
+	if not SaveGame.flag("boat_quest"):
+		return lit_count() >= 1
+	return SaveGame.flag("has_sail")
+
+
+func _talk_tomeu_boat() -> Dictionary:
+	if not SaveGame.flag("has_glider") or lit_count() < 1:
+		return {}
+	if not SaveGame.flag("boat_quest"):
+		return {"lines": [
+			_l("Tomeu", "¿Notas la brisa, Lía? ¡Con un faro encendido ya se podría navegar un poco!"),
+			_l("Tomeu", "Pero mira mi barca: la vela está hecha jirones. Sin vela no hay quien la mueva."),
+			_l("Tomeu", "Valeria, la sastra, me coserá una nueva si le llevamos lana. Las ovejas de Amparo, en la granja del prado, tienen de sobra."),
+			_l("Tomeu", "Si me ayudas, la barca es tuya. Yo ya estoy mayor para ir y venir."),
+		], "after": func() -> void:
+			SaveGame.set_flag("boat_quest")
+			toast.emit("Nuevo encargo: La barca de Tomeu", "boat")
+			Audio.play("quest_new")}
+	if not SaveGame.flag("has_boat"):
+		if SaveGame.flag("has_sail"):
+			return {"lines": [
+				_l("Tomeu", "¡Qué vela tan bonita! Déjame ponerla... ¡Ya está! Mira cómo se hincha con la brisa."),
+				_l("Tomeu", "Es tuya. Súbete desde el muelle con E y navega: W y S para avanzar, A y D para el timón."),
+				_l("Tomeu", "Para bajar, acércate a la orilla o al muelle y pulsa E. ¡Y cuando quieras, te reto a una regata!"),
+			], "after": func() -> void:
+				SaveGame.set_flag("has_boat")
+				refresh_boat()
+				reward(Catalog.REWARDS["boat"], "La barca de Tomeu")
+				maybe_showcase("boat", "item", null, func() -> void:
+					banner.emit("¡Barca de vela!", "Súbete desde el muelle con E")
+					Audio.play("quest_done"))}
+		return {}
+	if not SaveGame.flag("regatta_won") and regatta.is_empty():
+		return {"lines": [
+			_l("Tomeu", "¿Una regata? ¡Así me gusta! Rodea las seis boyas en orden antes de que se acabe el tiempo."),
+			_l("Tomeu", "Shift despliega toda la vela. ¡Tres, dos, uno...!"),
+		], "after": func() -> void: start_regatta()}
+	return {}
+
+
+## Crea la barca del jugador (si ya la tiene) donde la dejó amarrada la última vez.
+func refresh_boat() -> void:
+	if not SaveGame.flag("has_boat"):
+		if places.tomeu_boat:
+			places.tomeu_boat.visible = true
+		return
+	if my_boat != null:
+		return
+	var tb: Node3D = places.tomeu_boat
+	my_boat = Props.boat(true)
+	my_boat.name = "MyBoat"
+	add_child(my_boat)
+	var saved = SaveGame.data["flags"].get("boat_at", null)
+	if saved is Array and saved.size() == 3:
+		my_boat.position = Vector3(saved[0], 0.0, saved[1])
+		my_boat.rotation.y = saved[2]
+	else:
+		my_boat.global_transform = tb.global_transform
+	if tb:
+		tb.visible = false
+	_boat_interact = _add_interact("myboat", my_boat.global_position, 4.0,
+		func() -> String: return "Subir a la barca",
+		func() -> void: player.board(my_boat),
+		func() -> bool: return player.state != "boat")
+
+
+func _store_boat() -> void:
+	if my_boat:
+		SaveGame.data["flags"]["boat_at"] = [my_boat.global_position.x, my_boat.global_position.z, my_boat.global_rotation.y]
+		SaveGame.save_game()
+
+
+## Recorrido de la regata: seis boyas por la bahía del muelle (siempre en agua profunda).
+func regatta_course() -> Array:
+	var c := Vector2(15, 168)
+	var pts := [Vector2(40, 262), Vector2(78, 290), Vector2(58, 330), Vector2(6, 342), Vector2(-42, 312), Vector2(-30, 270)]
+	var out := []
+	for p: Vector2 in pts:
+		var q := p
+		var guard := 0
+		while island.height_at(q.x, q.y) > -2.5 and guard < 60:
+			q += (q - c).normalized() * 4.0
+			guard += 1
+		out.append(Vector3(q.x, 0.0, q.y))
+	return out
+
+
+func start_regatta() -> void:
+	if my_boat == null:
+		return
+	var course := regatta_course()
+	var start: Vector3 = places.tomeu_boat.global_position
+	my_boat.global_position = Vector3(start.x, 0.0, start.z + 4.0)
+	var first: Vector3 = course[0]
+	my_boat.rotation.y = atan2(-(first.x - start.x), -(first.z - start.z))
+	player.board(my_boat)
+	var buoys := []
+	for i in course.size():
+		var b := Props.buoy(Color(0.95, 0.35, 0.3) if i % 2 == 0 else Color(1.0, 0.8, 0.25))
+		add_child(b)
+		b.position = course[i]
+		buoys.append(b)
+	regatta = {"buoys": buoys, "idx": 0, "time": 80.0, "countdown": 3.5, "state": "countdown", "last_beep": 4}
+	player.locked = true
+	_update_buoys()
+
+
+func _update_buoys() -> void:
+	var buoys: Array = regatta["buoys"]
+	for i in buoys.size():
+		var b: Node3D = buoys[i]
+		b.scale = Vector3.ONE * (1.6 if i == regatta["idx"] else 1.0)
+		var flag := b.get_node("Flag") as Node3D
+		flag.visible = i >= regatta["idx"]
+
+
+func regatta_active() -> bool:
+	return not regatta.is_empty()
+
+
+func _regatta_process(dt: float) -> void:
+	if regatta.is_empty():
+		return
+	for b in regatta["buoys"]:
+		var bn: Node3D = b
+		bn.position.y = sin(_t * 1.5 + bn.position.x) * 0.15
+		(bn.get_node("Flag") as Node3D).rotation.y = sin(_t * 3.0 + bn.position.z) * 0.4
+	match regatta["state"]:
+		"countdown":
+			regatta["countdown"] -= dt
+			var c := int(ceil(regatta["countdown"]))
+			if c < regatta["last_beep"] and c <= 3 and c >= 1:
+				regatta["last_beep"] = c
+				Audio.play("countdown")
+			if regatta["countdown"] <= 0.0:
+				regatta["state"] = "run"
+				player.locked = false
+				Audio.play("go")
+				banner.emit("¡Ya!", "Rodea las boyas en orden")
+		"run":
+			regatta["time"] -= dt
+			var buoys: Array = regatta["buoys"]
+			var target: Vector3 = (buoys[regatta["idx"]] as Node3D).position
+			if Vector2(player.global_position.x - target.x, player.global_position.z - target.z).length() < 8.0:
+				regatta["idx"] = int(regatta["idx"]) + 1
+				Audio.play("ring", 0.0, 0.0, 1.0 + regatta["idx"] * 0.08)
+				if regatta["idx"] >= buoys.size():
+					_end_regatta(true)
+					return
+				_update_buoys()
+			if regatta["time"] <= 0.0 or player.state != "boat":
+				_end_regatta(false)
+
+
+func _end_regatta(won: bool) -> void:
+	var t: float = regatta["time"]
+	for b in regatta["buoys"]:
+		(b as Node3D).queue_free()
+	regatta = {}
+	player.locked = false
+	if won:
+		var first := not SaveGame.flag("regatta_won")
+		SaveGame.set_flag("regatta_won")
+		if first:
+			SaveGame.give("hat_captain")
+			reward(Catalog.REWARDS["regatta"], "Regata del Muelle")
+			banner.emit("¡Regata ganada!", "Gorro de capitán · Póntelo en Esc → Aspecto")
+		else:
+			reward(Catalog.REWARDS["race_again"], "Regata del Muelle")
+			banner.emit("¡Regata ganada!", "Te sobraron %.1f s" % t)
+		Audio.play("quest_done")
+	else:
+		Audio.play("fail")
+		banner.emit("¡Casi!", "Habla con Tomeu para intentarlo otra vez")
+	_store_boat()
+	SaveGame.save_game()
+
+
+## V: subir o bajar de la bici.
+func toggle_bike() -> void:
+	if not SaveGame.flag("has_bike"):
+		return
+	player.has_bike = true
+	if player.on_bike:
+		player.set_bike(false)
+	elif player.state == "ground":
+		player.set_bike(true)
+		Audio.play("ui_click", 0.05, -4.0)
+
+
+func _update_life(dt: float) -> void:
+	_regatta_process(dt)
+	var farm: Farm = places.farm
+	if farm:
+		for k in _sheep_interacts.size():
+			(_sheep_interacts[k] as Dictionary)["pos"] = (farm.sheep[k]["model"] as Node3D).global_position
+	if my_boat and not _boat_interact.is_empty():
+		_boat_interact["pos"] = my_boat.global_position
+		if player.state != "boat":
+			my_boat.position.y = sin(_t * 1.4) * 0.05 - 0.02
+			my_boat.rotation.z = sin(_t * 1.1) * 0.03
+
+
+func _life_quests(q: Array) -> void:
+	var f := SaveGame.flag
+	if f.call("boat_quest"):
+		var wool := mini(SaveGame.bag_count("wool"), 3)
+		var steps := [
+			["Pide las tijeras de esquilar a Amparo", f.call("has_shears") or f.call("has_sail"), "Amparo está en la Granja del Prado, al norte del pueblo siguiendo el camino del prado."],
+			["Esquila ovejas: lana %d/3" % (3 if f.call("has_sail") else wool), f.call("has_sail") or wool >= 3, "Acércate a las ovejas del prado vallado de la granja y pulsa E. Cada oveja da lana una vez al día."],
+			["Lleva la lana a Valeria para que cosa la vela", f.call("has_sail"), "La sastrería de Valeria es la casa del tejado frambuesa, con el tendedero."],
+			["Lleva la vela a Tomeu", f.call("has_boat"), "Tomeu está en su muelle, al sur del pueblo."]]
+		var target: Vector3 = npcs["tomeu"].position
+		for st in steps:
+			if not st[1]:
+				target = npcs["amparo"].position if st == steps[0] else (places.farm.world_at(23, 6) if st == steps[1] else (npcs["valeria"].position if st == steps[2] else npcs["tomeu"].position))
+				break
+		q.append({"id": "boat", "title": "La barca de Tomeu", "giver": "Tomeu", "main": true, "radius": 0.0,
+			"done": f.call("has_boat"), "steps": steps, "target": target})
+	if f.call("has_boat"):
+		q.append({"id": "regatta", "title": "La regata del muelle", "giver": "Tomeu", "main": false, "radius": 0.0,
+			"done": f.call("regatta_won"), "steps": [["Gana la regata: rodea las 6 boyas a tiempo", f.call("regatta_won"),
+				"Habla con Tomeu en el muelle para empezar. Shift despliega toda la vela; frena un poco antes de cada giro."]],
+			"target": npcs["tomeu"].position})
+	if f.call("bread_quest"):
+		q.append({"id": "bread", "title": "Pan para todos", "giver": "Rafa", "main": false, "radius": 0.0,
+			"done": f.call("bread_done"), "steps": [
+				["Consigue 4 huevos (%d/4)" % mini(SaveGame.bag_count("egg"), 4), f.call("bread_done") or SaveGame.bag_count("egg") >= 4, "En el gallinero de la granja de Amparo: pulsa E junto a él. Hay huevos cada mañana."],
+				["Consigue 3 manzanas (%d/3)" % mini(SaveGame.bag_count("apple"), 3), f.call("bread_done") or SaveGame.bag_count("apple") >= 3, "Sacude los manzanos de la granja con E y recoge las que caen."],
+				["Llévaselos a Rafa", f.call("bread_done"), "La panadería de Rafa está al oeste de la plaza, con un toldo a rayas y una hogaza en el rótulo."]],
+			"target": npcs["rafa"].position if SaveGame.bag_count("egg") >= 4 and SaveGame.bag_count("apple") >= 3 else places.farm.coop_pos})
+	if f.call("sheep_quest"):
+		var found := SaveGame.count_collected("lostsheep_")
+		var target: Vector3 = npcs["amparo"].position
+		var radius := 0.0
+		for id in LOST_SHEEP:
+			if not SaveGame.is_collected(id):
+				target = _fuzz(resolve(LOST_SHEEP[id]), 16.0)
+				radius = 16.0
+				break
+		q.append({"id": "sheep", "title": "El rebaño perdido (%d/3)" % found, "giver": "Amparo", "main": false, "radius": radius,
+			"done": f.call("sheep_done"), "steps": [
+				["Encuentra las 3 ovejas escapadas", found >= 3, "Una está cerca del Lago Espejo, otra junto a la playa del este y otra al pie del Peñón del Salto."],
+				["Vuelve con Amparo", f.call("sheep_done"), "Amparo está en la Granja del Prado."]],
+			"target": target})
+	if f.call("flowers_quest"):
+		var n := mini(SaveGame.bag_count("flower"), 8)
+		q.append({"id": "flowers", "title": "Ramo para la fiesta", "giver": "Rosa", "main": false, "radius": 0.0,
+			"done": f.call("flowers_done"), "steps": [
+				["Recoge 8 flores silvestres (%d/8)" % n, f.call("flowers_done") or n >= 8, "Crecen por los prados de la isla, lejos del pueblo. Vuelven a salir cada mañana."],
+				["Llévaselas a Rosa", f.call("flowers_done"), "Rosa está en la puerta del ayuntamiento, junto a la fuente."]],
+			"target": npcs["rosa"].position if n >= 8 else Vector3.ZERO})
+	if f.call("bruno_done") and not f.call("has_bike"):
+		var p := SaveGame.counter("parcels_done")
+		q.append({"id": "bike", "title": "Cartero sobre ruedas", "giver": "Bruno", "main": false, "radius": 0.0,
+			"done": false, "steps": [["Haz 3 repartos de Correos (%d/3)" % mini(p, 3), p >= 3, "Pide paquetes a Bruno en Correos y llévalos a quien te diga."],
+				["Vuelve con Bruno", false, "Bruno está en la puerta de Correos, la casa del tejado azul."]],
+			"target": npcs["bruno"].position})
+
+
+
+## Tomeu compra todo el pescado de la cesta ({} si no hay nada que vender).
+func _tomeu_fish_sale() -> Dictionary:
+	var value := fish_value()
+	if value <= 0:
+		return {}
+	var count := 0
+	for id in SaveGame.data["fish"]:
+		count += int(SaveGame.data["fish"][id])
+	return {"lines": [
+		_l("Tomeu", "¡Vaya cesta! %d %s. Te doy %d conchas por todo, ¿trato hecho?" % [count, "pieza" if count == 1 else "piezas", value]),
+	], "after": func() -> void:
+		SaveGame.data["fish"] = {}
+		reward(value, "Venta de pescado")}

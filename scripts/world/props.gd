@@ -432,27 +432,41 @@ static func dock(length: float) -> Node3D:
 	return root
 
 
-static func boat() -> Node3D:
+## Asiento del jugador en su barca (coordenadas de la barca).
+const BOAT_SEAT := Vector3(0, 0.3, 0.42)
+## Cuánto asoma la barca sobre el agua (el suelo queda por encima de la superficie).
+const BOAT_FREEBOARD := 0.24
+
+
+## Barca de vela. `raised_boom` sube la botavara por encima de la cabeza (barca del jugador).
+static func boat(raised_boom := false) -> Node3D:
 	var root := Node3D.new()
 	var paint := Color(0.25, 0.5, 0.75)
 	# Casco de dos proas, pintado, con una franja blanca bajo la borda.
-	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62), MeshKit.surface_mat(paint, "wood", 0.1), Vector3(0, 0.05, 0))
+	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62, Vector2(0.0, 1.0), 0.0, false), MeshKit.surface_mat(paint, "wood", 0.1), Vector3(0, 0.05, 0))
 	# Forro interior de madera (el casco se ve por dentro).
 	MeshKit.part(root, MeshKit.hull(5.08, 2.38, 0.56), MeshKit.surface_mat(WOOD.lightened(0.05), "wood", 0.0), Vector3(0, 0.07, 0))
-	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62, Vector2(0.02, 0.12), 0.012), MeshKit.surface_mat(Color(0.96, 0.94, 0.88), "wood", 0.1), Vector3(0, 0.05, 0))
-	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62, Vector2(0.88, 0.98), 0.012), MeshKit.surface_mat(Color(0.96, 0.94, 0.88), "wood", 0.1), Vector3(0, 0.05, 0))
+	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62, Vector2(0.02, 0.12), 0.012, false), MeshKit.surface_mat(Color(0.96, 0.94, 0.88), "wood", 0.1), Vector3(0, 0.05, 0))
+	MeshKit.part(root, MeshKit.hull(5.2, 2.5, 0.62, Vector2(0.88, 0.98), 0.012, false), MeshKit.surface_mat(Color(0.96, 0.94, 0.88), "wood", 0.1), Vector3(0, 0.05, 0))
 	# Tablas del fondo, bancada (ahí se sienta el gatito) y regala.
-	for k in 5:
-		_box(root, Vector3(0.24, 0.05, 3.2 - absf(k - 2) * 0.6), WOOD, Vector3(-0.56 + k * 0.28, -0.12, 0))
+	for k in 7:
+		_box(root, Vector3(0.27, 0.05, 3.4 - absf(k - 3) * 0.5), WOOD.lightened(0.03 * float(k % 2)), Vector3(-0.84 + k * 0.28, -0.1, 0))
 	_box(root, Vector3(2.1, 0.08, 0.36), WOOD, Vector3(0, 0.44, 0.4))
 	_box(root, Vector3(1.7, 0.08, 0.3), WOOD, Vector3(0, 0.4, -1.3))
 	# Mástil, botavara y vela hinchada por el viento.
 	var mast_z := -0.5
 	_p(root, MeshKit.cylinder(0.055, 0.075, 4.1, 8), WOOD_DARK, Vector3(0, 2.05, mast_z))
-	_p(root, MeshKit.cylinder(0.04, 0.045, 2.3, 8), WOOD_DARK, Vector3(0, 0.85, mast_z + 1.12), Vector3(90, 0, 0))
-	var tack := Vector3(0, 0.88, mast_z + 0.06)
-	var head := Vector3(0, 3.9, mast_z + 0.06)
-	var clew := Vector3(0, 0.9, mast_z + 2.2)
+	var boom_y := 2.0 if raised_boom else 0.85
+	var boom := Node3D.new()
+	boom.name = "Boom"
+	boom.position = Vector3(0, boom_y, mast_z)
+	root.add_child(boom)
+	_p(boom, MeshKit.cylinder(0.04, 0.045, 2.3, 8), WOOD_DARK, Vector3(0, 0, 1.12), Vector3(90, 0, 0))
+	var tack := Vector3(0, boom_y + 0.03, mast_z + 0.06)
+	var head := Vector3(0, 3.9 if not raised_boom else 4.4, mast_z + 0.06)
+	var clew := Vector3(0, boom_y + 0.05, mast_z + 2.2)
+	if raised_boom:
+		_p(root, MeshKit.cylinder(0.065, 0.065, 0.6, 8), WOOD_DARK, Vector3(0, 4.3, mast_z))
 	var sail := func(u: float, v: float) -> Vector3:
 		var p := tack + (clew - tack) * v * (1.0 - u) + (head - tack) * u
 		p.x += sin(v * PI) * 0.32 * (1.0 - u * 0.7)
@@ -465,6 +479,112 @@ static func boat() -> Node3D:
 		var to: Vector3 = line[1]
 		var l := MeshKit.part(root, MeshKit.cylinder(0.008, 0.008, from.distance_to(to), 4), MeshKit.mat(Color(0.85, 0.82, 0.75)), (from + to) * 0.5)
 		l.basis = Basis(Quaternion(Vector3.UP, (to - from).normalized()))
+	# Todo sube un poco para que el suelo quede por encima del agua.
+	var wrapper := Node3D.new()
+	wrapper.add_child(root)
+	root.position.y = BOAT_FREEBOARD
+	return wrapper
+
+
+# --- Panadería, tablón de anuncios, bicicleta y boyas -------------------------------
+
+## Detalles de la panadería sobre una casa: toldo, rótulo con una hogaza, escaparate con
+## panes y una mesa con cestas a la puerta. `w` y `d` son las medidas de la casa.
+static func bakery_front(root: Node3D, w: float, d: float) -> void:
+	var cream := Color(0.98, 0.9, 0.72)
+	var crust := Color(0.82, 0.55, 0.28)
+	# Toldo a rayas sobre la ventana de la fachada.
+	for i in 5:
+		var c := Color(0.85, 0.35, 0.3) if i % 2 == 0 else cream
+		_box(root, Vector3(0.36, 0.05, 1.0), c, Vector3(w * 0.22 - 0.72 + i * 0.36, 2.9, d * 0.5 + 0.45), Vector3(22, 0, 0))
+	# Rótulo colgado con una hogaza dorada.
+	_p(root, MeshKit.cylinder(0.03, 0.03, 1.0, 6), Color(0.25, 0.25, 0.28), Vector3(w * 0.5 + 0.45, 3.2, d * 0.5 - 0.3), Vector3(0, 0, 90))
+	_box(root, Vector3(0.08, 0.7, 0.7), cream, Vector3(w * 0.5 + 0.85, 2.75, d * 0.5 - 0.3))
+	_p(root, MeshKit.blob(0.24, 0.55, 0.05, 1, 12), crust, Vector3(w * 0.5 + 0.92, 2.75, d * 0.5 - 0.3), Vector3(0, 0, 90), Vector3(1.0, 1.0, 1.6))
+	# Mesa con cestas de pan.
+	var table := Node3D.new()
+	table.position = Vector3(w * 0.22, 0, d * 0.5 + 1.3)
+	root.add_child(table)
+	_box(table, Vector3(1.6, 0.08, 0.7), WOOD, Vector3(0, 0.82, 0))
+	for sx: int in [-1, 1]:
+		for sz: int in [-1, 1]:
+			_p(table, MeshKit.cylinder(0.035, 0.035, 0.8, 6), WOOD_DARK, Vector3(sx * 0.7, 0.4, sz * 0.28))
+	for k in 3:
+		_p(table, MeshKit.lathe(PackedVector2Array([Vector2(0.18, 0), Vector2(0.24, 0.05), Vector2(0.26, 0.15), Vector2(0.0, 0.12)]), 12), WOOD.lightened(0.2), Vector3(-0.5 + k * 0.5, 0.86, 0))
+		for b in 3:
+			_p(table, MeshKit.blob(0.09, 0.6, 0.05, b, 10), crust.lightened(0.05 * b), Vector3(-0.5 + k * 0.5 + (b - 1) * 0.08, 1.02, (b % 2) * 0.06 - 0.03), Vector3(0, b * 50, 0), Vector3(1.0, 1.0, 1.7))
+	# Pizarra con el menú.
+	_box(root, Vector3(0.7, 0.9, 0.06), Color(0.15, 0.18, 0.17), Vector3(-w * 0.18 + 1.25, 0.75, d * 0.5 + 0.9), Vector3(-12, 0, 0))
+
+
+## Tablón de anuncios con tejadillo y papeles clavados (encargos del día).
+static func noticeboard() -> Node3D:
+	var root := Node3D.new()
+	for sx: int in [-1, 1]:
+		_p(root, MeshKit.cylinder(0.07, 0.08, 2.4, 8), WOOD_DARK, Vector3(sx * 0.9, 1.2, 0))
+	_box(root, Vector3(1.9, 1.15, 0.1), WOOD, Vector3(0, 1.45, 0))
+	_box(root, Vector3(2.3, 0.08, 0.6), Color(0.72, 0.22, 0.18), Vector3(0, 2.42, 0.02), Vector3(-10, 0, 0))
+	var cols := [Color(0.98, 0.95, 0.85), Color(0.95, 0.92, 0.75), Color(1.0, 0.9, 0.9), Color(0.9, 0.95, 1.0), Color(0.98, 0.95, 0.85)]
+	for k in 5:
+		var p := Vector3(-0.6 + (k % 3) * 0.6, 1.25 + (k / 3) * 0.42 + (k % 2) * 0.05, 0.07)
+		_box(root, Vector3(0.42, 0.34, 0.01), cols[k], p, Vector3(0, 0, (k % 3 - 1) * 5.0))
+		_p(root, MeshKit.sphere(0.022, 8), Color(0.85, 0.2, 0.2), p + Vector3(0, 0.12, 0.02))
+	var b := body(root)
+	box_col(b, Vector3(2.0, 2.4, 0.3), Vector3(0, 1.2, 0))
+	return root
+
+
+## Bicicleta de cartero (mira hacia -Z): ruedas con radios, cuadro, sillín, manillar y cesta.
+## Las ruedas son los nodos "WheelF" y "WheelB" (giran en x).
+static func bicycle() -> Node3D:
+	var root := Node3D.new()
+	var frame := Color(0.25, 0.42, 0.75)
+	var metal := Color(0.75, 0.76, 0.78)
+	var dark := Color(0.15, 0.15, 0.17)
+	for wz in [[-0.55, "WheelF"], [0.5, "WheelB"]]:
+		var wheel := Node3D.new()
+		wheel.name = wz[1]
+		wheel.position = Vector3(0, 0.34, wz[0])
+		root.add_child(wheel)
+		_p(wheel, MeshKit.torus(0.3, 0.36), dark, Vector3.ZERO, Vector3(0, 0, 90))
+		for k in 8:
+			_p(wheel, MeshKit.cylinder(0.006, 0.006, 0.6, 4), metal, Vector3.ZERO, Vector3(k * 22.5, 0, 0))
+		_p(wheel, MeshKit.cylinder(0.04, 0.04, 0.08, 10), metal, Vector3.ZERO, Vector3(0, 0, 90))
+	var pts := {"seat": Vector3(0, 0.85, 0.18), "head": Vector3(0, 0.88, -0.42), "crank": Vector3(0, 0.36, 0.0),
+		"rear": Vector3(0, 0.34, 0.5), "front": Vector3(0, 0.34, -0.55)}
+	for seg in [["seat", "crank"], ["head", "crank"], ["seat", "head"], ["seat", "rear"], ["crank", "rear"], ["head", "front"]]:
+		var a: Vector3 = pts[seg[0]]
+		var bb: Vector3 = pts[seg[1]]
+		var l := _p(root, MeshKit.cylinder(0.022, 0.022, a.distance_to(bb), 8), frame, (a + bb) * 0.5)
+		l.basis = Basis(Quaternion(Vector3.UP, (bb - a).normalized()))
+	_p(root, MeshKit.blob(0.1, 0.4, 0.0, 0, 10), Color(0.4, 0.25, 0.18), Vector3(0, 0.93, 0.2), Vector3.ZERO, Vector3(0.9, 1.0, 1.6))
+	_p(root, MeshKit.cylinder(0.018, 0.018, 0.56, 8), metal, Vector3(0, 1.0, -0.4), Vector3(0, 0, 90))
+	for sx: float in [-1.0, 1.0]:
+		_p(root, MeshKit.capsule(0.03, 0.12), dark, Vector3(sx * 0.3, 1.0, -0.4), Vector3(0, 0, 90))
+	# Cesta de mimbre delante (con una carta asomando).
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.14, 0), Vector2(0.18, 0.04), Vector2(0.2, 0.22), Vector2(0.0, 0.2)]), 12), Color(0.82, 0.65, 0.4), Vector3(0, 0.82, -0.62))
+	_box(root, Vector3(0.16, 0.12, 0.01), Color(0.98, 0.95, 0.85), Vector3(0, 1.02, -0.62), Vector3(0, 30, 10))
+	var pedals := Node3D.new()
+	pedals.name = "Pedals"
+	pedals.position = pts["crank"]
+	root.add_child(pedals)
+	for sx: float in [-1.0, 1.0]:
+		_box(pedals, Vector3(0.03, 0.18, 0.03), metal, Vector3(sx * 0.07, sx * 0.08, 0))
+		_box(pedals, Vector3(0.1, 0.03, 0.06), dark, Vector3(sx * 0.12, sx * 0.16, 0))
+	return root
+
+
+## Boya de regata: flotador a rayas con un banderín.
+static func buoy(col: Color) -> Node3D:
+	var root := Node3D.new()
+	_p(root, MeshKit.lathe(PackedVector2Array([Vector2(0.0, -0.4), Vector2(0.45, -0.3), Vector2(0.55, 0.1), Vector2(0.4, 0.5), Vector2(0.0, 0.6)]), 16), col)
+	_p(root, MeshKit.cylinder(0.5, 0.56, 0.18, 16), Color(0.97, 0.97, 0.95), Vector3(0, 0.1, 0))
+	_p(root, MeshKit.cylinder(0.03, 0.03, 1.8, 6), Color(0.3, 0.3, 0.32), Vector3(0, 1.4, 0))
+	var flag := Node3D.new()
+	flag.name = "Flag"
+	flag.position = Vector3(0, 2.1, 0)
+	root.add_child(flag)
+	_box(flag, Vector3(0.02, 0.4, 0.6), col, Vector3(0, 0, 0.3))
 	return root
 
 

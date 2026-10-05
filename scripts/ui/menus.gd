@@ -125,11 +125,11 @@ func show_pause(tab := "map") -> void:
 	p.add_child(v)
 	var tabs := UiKit.hbox(10)
 	v.add_child(tabs)
-	var names := [["map", "Mapa"], ["quests", "Encargos"], ["journal", "Cuaderno"], ["looks", "Aspecto"], ["options", "Opciones"]]
+	var names := [["map", "Mapa"], ["quests", "Encargos"], ["bag", "Mochila"], ["journal", "Cuaderno"], ["looks", "Aspecto"], ["options", "Opciones"]]
 	var first: Button
 	for t in names:
 		var tid: String = t[0]
-		var b := UiKit.accent_button(t[1], func() -> void: _switch_tab(tid), 20, 150) if tid == _tab else UiKit.button(t[1], func() -> void: _switch_tab(tid), 20, 150)
+		var b := UiKit.accent_button(t[1], func() -> void: _switch_tab(tid), 20, 132) if tid == _tab else UiKit.button(t[1], func() -> void: _switch_tab(tid), 20, 132)
 		tabs.add_child(b)
 		if tid == _tab:
 			first = b
@@ -147,6 +147,8 @@ func show_pause(tab := "map") -> void:
 			_build_quests_tab()
 		"looks":
 			_build_looks_tab()
+		"bag":
+			_build_bag_tab()
 		"journal":
 			_build_journal_tab()
 		"options":
@@ -315,6 +317,61 @@ func _build_quests_tab() -> void:
 		v.add_child(card)
 
 
+func _build_bag_tab() -> void:
+	var sc := ScrollContainer.new()
+	UiKit.full_rect(sc)
+	_tab_body.add_child(sc)
+	var v := UiKit.vbox(10)
+	v.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	sc.add_child(v)
+	var head := UiKit.hbox(16)
+	head.add_child(UiKit.icon("shell", 30))
+	head.add_child(UiKit.label("%d conchas" % SaveGame.shells(), 24, UiKit.C_TEXT, 700))
+	head.add_child(UiKit.spacer(0, 20))
+	head.add_child(UiKit.icon("feather", 30))
+	head.add_child(UiKit.label("%d plumas" % SaveGame.feathers(), 24, UiKit.C_TEXT, 700))
+	head.add_child(UiKit.expand_spacer())
+	head.add_child(UiKit.label("Día %d" % (SaveGame.day() + 1), 22, UiKit.C_MUTED, 600))
+	v.add_child(head)
+	var any := false
+	for id in Catalog.BAG:
+		var n := SaveGame.bag_count(id)
+		if n <= 0:
+			continue
+		any = true
+		var info: Array = Catalog.BAG[id]
+		var row := UiKit.hbox(14)
+		row.add_child(UiKit.icon(info[1], 38))
+		var tv := UiKit.vbox(2)
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		tv.add_child(UiKit.label("%s × %d" % [info[0], n], 22, UiKit.C_TEXT, 600))
+		var d := UiKit.label(info[3], 17, UiKit.C_MUTED)
+		d.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		tv.add_child(d)
+		row.add_child(tv)
+		if id == "bread":
+			row.add_child(UiKit.accent_button("Comer", func() -> void:
+				if SaveGame.bag_take("bread"):
+					main.player.refill_stamina()
+					Audio.play("stamina_up", 0.0, -3.0)
+					main.hud.show_toast("¡Qué rico! Aguante al máximo", "bread")
+					show_pause("bag"), 19, 140))
+		v.add_child(row)
+	var fish := 0
+	for fid in SaveGame.data["fish"]:
+		fish += int(SaveGame.data["fish"][fid])
+	if fish > 0:
+		any = true
+		var row := UiKit.hbox(14)
+		row.add_child(UiKit.icon("fish", 38))
+		row.add_child(UiKit.label("Cesta de pescado: %d %s (Tomeu te la compra)" % [fish, "pieza" if fish == 1 else "piezas"], 22, UiKit.C_TEXT, 600))
+		v.add_child(row)
+	if not any:
+		var l := UiKit.label("La mochila está vacía. Recoge huevos y manzanas en la granja, flores en los prados o compra pan a Rafa.", 19, UiKit.C_MUTED)
+		l.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+		v.add_child(l)
+
+
 func _build_looks_tab() -> void:
 	var h := UiKit.hbox(18)
 	UiKit.full_rect(h)
@@ -432,6 +489,9 @@ func _check(text: String, key: String, cb: Callable) -> Control:
 func show_shop(shop_id := "") -> void:
 	if shop_id != "":
 		_shop_id = shop_id
+	if _shop_id == "board":
+		show_board()
+		return
 	var shop: Dictionary = Catalog.SHOPS[_shop_id]
 	var root := _overlay(0.45)
 	kind = "shop"
@@ -491,7 +551,12 @@ func _shop_row(id: String) -> Array:
 	var owned := SaveGame.owns(id)
 	var slot: String = it[0]
 	var b: Button
-	if owned and slot == "special":
+	if slot == "food":
+		var price: int = it[2]
+		name_l.text = "%s (tienes %d)" % [it[1], SaveGame.bag_count(it[3])]
+		b = UiKit.accent_button("Comprar · %d" % price, func() -> void: _buy(id), 19, 210)
+		b.disabled = SaveGame.shells() < price
+	elif owned and slot == "special":
 		b = UiKit.button("Comprado", func() -> void: pass, 19, 210)
 		b.disabled = true
 	elif owned:
@@ -526,6 +591,8 @@ func _swatch(id: String) -> Control:
 	match it[0]:
 		"special":
 			return UiKit.icon("feather" if id == "shop_feather" else "arrow", 34)
+		"food":
+			return UiKit.icon(Catalog.BAG[it[3]][1], 34)
 		"pet":
 			return UiKit.icon("paw", 34, (it[3][2][0] as Color) if it[3] != null else Color(0, 0, 0, 0))
 		"hat":
@@ -542,8 +609,13 @@ func _buy(id: String) -> void:
 	if not SaveGame.spend(it[2]):
 		Audio.play("error")
 		return
-	SaveGame.give(id)
 	Audio.play("buy")
+	if it[0] == "food":
+		SaveGame.bag_add(it[3])
+		SaveGame.save_game()
+		show_shop()
+		return
+	SaveGame.give(id)
 	if id == "shop_feather":
 		main.gameplay._grant_feather("¡Pluma dorada de Marisol!")
 	elif id == "shop_compass":
@@ -555,6 +627,64 @@ func _buy(id: String) -> void:
 			main.hud.show_banner("¡%s se viene contigo!" % it[3][1], "Acércate y pulsa E para acariciarla")
 	SaveGame.save_game()
 	show_shop()
+
+
+# --- Tablón de encargos ------------------------------------------------------------------------
+
+func show_board() -> void:
+	var root := _overlay(0.45)
+	kind = "shop"
+	var gp = main.gameplay
+	var p := UiKit.panel()
+	p.custom_minimum_size = Vector2(820, 520)
+	var v := UiKit.vbox(12)
+	p.add_child(v)
+	var head := UiKit.hbox(10)
+	head.add_child(UiKit.icon("quest", 34))
+	head.add_child(UiKit.label("Tablón de encargos", 34, UiKit.C_TEXT, 700))
+	head.add_child(UiKit.expand_spacer())
+	head.add_child(UiKit.label("Día %d" % (SaveGame.day() + 1), 22, UiKit.C_MUTED, 600))
+	v.add_child(head)
+	var blurb := UiKit.label("Los vecinos dejan aquí lo que necesitan. Cada mañana hay encargos nuevos.", 19, UiKit.C_MUTED)
+	blurb.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	v.add_child(blurb)
+	var first: Button
+	var reqs: Array = gp.board_requests()
+	for i in reqs.size():
+		var r: Dictionary = reqs[i]
+		var card := UiKit.panel(Color(1.0, 0.96, 0.86, 1.0), UiKit.C_BORDER, 14, 14)
+		var row := UiKit.hbox(14)
+		card.add_child(row)
+		row.add_child(UiKit.icon("fish" if r["item"] == "fish" else Catalog.BAG[r["item"]][1], 40))
+		var tv := UiKit.vbox(2)
+		tv.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+		var who: String = Catalog.NPCS[r["who"]]["name"]
+		tv.add_child(UiKit.label("%s necesita %s" % [who, gp.item_label(r["item"], r["n"])], 22, UiKit.C_TEXT, 600))
+		var have: int = gp.have_item(r["item"])
+		tv.add_child(UiKit.label("Tienes %d · Recompensa: %d conchas" % [have, r["reward"]], 18, UiKit.C_MUTED))
+		row.add_child(tv)
+		var ri: int = i
+		var b: Button
+		if r["done"]:
+			b = UiKit.button("Hecho", func() -> void: pass, 19, 170)
+			b.disabled = true
+		else:
+			b = UiKit.accent_button("Entregar", func() -> void:
+				if gp.deliver_request(ri):
+					Audio.play("quest_done", 0.0, -4.0)
+				else:
+					Audio.play("error")
+				show_board(), 19, 170)
+			b.disabled = have < int(r["n"])
+		row.add_child(b)
+		v.add_child(card)
+		if first == null and not b.disabled:
+			first = b
+	var close_b := UiKit.button("Cerrar", func() -> void: main.resume(), 22, 240)
+	v.add_child(close_b)
+	root.add_child(UiKit.center(p))
+	UiKit.pop_in(p)
+	(first if first else close_b).call_deferred("grab_focus")
 
 
 # --- Final -----------------------------------------------------------------------------------

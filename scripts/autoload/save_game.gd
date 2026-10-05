@@ -29,6 +29,9 @@ func default_data() -> Dictionary:
 		"shells": 0,
 		"feathers": 0,
 		"fish": {},
+		"bag": {},
+		"day": 0,
+		"daily": {},
 		"owned": {"scarf_red": true, "glider_classic": true, "hat_none": true, "outfit_travel": true, "pet_none": true},
 		"equipped": {"scarf": "scarf_red", "hat": "hat_none", "glider": "glider_classic", "outfit": "outfit_travel", "pet": "pet_none"},
 		"tracked": "",
@@ -74,7 +77,7 @@ func save_game() -> void:
 func _merge(base: Dictionary, incoming: Dictionary) -> void:
 	for k in incoming:
 		if base.has(k) and base[k] is Dictionary and incoming[k] is Dictionary:
-			if k in ["flags", "collected", "discovered", "owned", "equipped", "journal", "fish"]:
+			if k in ["flags", "collected", "discovered", "owned", "equipped", "journal", "fish", "bag", "daily"]:
 				base[k] = incoming[k]
 			else:
 				_merge(base[k], incoming[k])
@@ -195,6 +198,46 @@ func equipped(slot: String) -> String:
 
 func equip(slot: String, id: String) -> void:
 	data["equipped"][slot] = id
+	changed.emit()
+
+
+# --- Mochila (objetos que se gastan) y cosas que se renuevan cada día --------------------
+
+func bag_count(id: String) -> int:
+	return int(data["bag"].get(id, 0))
+
+
+func bag_add(id: String, n := 1) -> void:
+	data["bag"][id] = bag_count(id) + n
+	changed.emit()
+
+
+func bag_take(id: String, n := 1) -> bool:
+	if bag_count(id) < n:
+		return false
+	data["bag"][id] = bag_count(id) - n
+	changed.emit()
+	return true
+
+
+func day() -> int:
+	return int(data.get("day", 0))
+
+
+## Marca algo como hecho hoy (huevos recogidos, oveja esquilada, manzano sacudido...).
+func daily_done(key: String) -> bool:
+	return data["daily"].has(key)
+
+
+func set_daily(key: String) -> void:
+	data["daily"][key] = true
+	changed.emit()
+
+
+## Empieza un día nuevo: lo diario vuelve a estar disponible.
+func next_day() -> void:
+	data["day"] = day() + 1
+	data["daily"] = {}
 	changed.emit()
 
 
