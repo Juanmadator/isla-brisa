@@ -31,7 +31,7 @@ func _ready() -> void:
 		get_tree().create_timer(240.0).timeout.connect(func() -> void:
 			printerr("TIEMPO AGOTADO")
 			get_tree().quit(2))
-	for tool in [["--ib-look", "res://tools/look.gd"], ["--ib-move", "res://tools/move_test.gd"]]:
+	for tool in [["--ib-look", "res://tools/look.gd"], ["--ib-move", "res://tools/move_test.gd"], ["--ib-clip", "res://tools/clip.gd"]]:
 		if tool[0] in args:
 			add_child(load(tool[1]).new())
 			return
@@ -94,6 +94,7 @@ func _build() -> void:
 	add_child(hud)
 	hud.main = self
 	hud.build()
+	hud.dialogue.line_started.connect(func(who: String) -> void: _speaker = who)
 	menus = Menus.new()
 	menus.process_mode = Node.PROCESS_MODE_ALWAYS
 	menus.main = self
@@ -126,7 +127,8 @@ func _build() -> void:
 	player.jumped.connect(func() -> void: Audio.play("jump", 0.08, -5.0))
 	player.landed.connect(func(heavy: bool) -> void:
 		Audio.play("land_heavy" if heavy else "land", 0.08, -3.0)
-		player.avatar.squash(-1.3 if heavy else -0.7)
+		player.avatar.squash(-0.5 if heavy else -0.22)
+		player.avatar.impact(1.0 if heavy else 0.55)
 		Fx.dust(world, player.global_position, 1.6 if heavy else 0.8)
 		if heavy:
 			rig.shake = 0.6)
@@ -298,6 +300,12 @@ func _on_say(lines: Array, on_done: Callable) -> void:
 		cut_cam.make_current()
 		hud.set_gameplay_visible(false)
 	hud.dialogue.open(lines, func() -> void:
+		player.avatar.speaking = false
+		player.avatar.listening = false
+		if gameplay.talking_npc:
+			gameplay.talking_npc.avatar.speaking = false
+			gameplay.talking_npc.avatar.listening = false
+			player.anim_override = ""
 		player.locked = false
 		gameplay.locked = false
 		if _dlg_cam:
@@ -365,10 +373,32 @@ func _process(delta: float) -> void:
 			_play_process(delta)
 			if state == "dialog" and _dlg_cam:
 				_dialog_cam_process(delta)
+			_dialog_acting()
 		"showcase":
 			_showcase_process(delta)
 		"cutscene", "ending":
 			_cut_process(delta)
+
+
+## Conversación: quien habla mueve la boca mientras se escribe su frase y gesticula; quien
+## escucha asiente de vez en cuando.
+var _speaker := ""
+
+
+func _dialog_acting() -> void:
+	var npc: Npc = gameplay.talking_npc
+	var typing: bool = state == "dialog" and hud.dialogue.visible and hud.dialogue.is_typing()
+	var lia_speaks := state == "dialog" and npc != null and _speaker == "Lía"
+	player.avatar.speaking = lia_speaks and typing
+	if npc:
+		var npc_speaks := not lia_speaks and _speaker != ""
+		npc.avatar.speaking = npc_speaks and typing
+		npc.avatar.listening = lia_speaks
+		player.avatar.listening = state == "dialog" and npc_speaks
+		if state == "dialog":
+			player.anim_override = "talk" if lia_speaks else ""
+	elif player.avatar.listening or player.avatar.speaking:
+		player.avatar.listening = false
 
 
 func _play_process(delta: float) -> void:
@@ -430,11 +460,16 @@ func _on_step(biome: int) -> void:
 		v = v % 6 + 1
 	_last_step[kind] = v
 	var spd := Vector2(player.velocity.x, player.velocity.z).length()
-	var vol := -7.0 + randf_range(-1.5, 1.0) + (2.0 if spd > Player.RUN + 1.0 else 0.0) - (3.0 if spd < 4.0 else 0.0)
+	var vol := -7.0 + randf_range(-1.5, 1.0) + (2.0 if spd > Player.RUN + 1.0 else 0.0) - (3.0 if spd < 4.0 else 0.0) - (5.0 if spd < 1.0 else 0.0)
+	# Huellas en la arena (y en la tierra de los caminos, más suaves).
+	if kind == "sand" or (biome == Island.Biome.PATH and kind == "grass"):
+		Fx.footprint(world, player.last_step_pos, player.facing, player.last_step_side)
 	vol += {"sand": 3.0, "wood": 3.0}.get(kind, 0.0)
 	Audio.play("step_%s_%d" % [kind, v], 0.05, vol)
 	if spd > Player.RUN + 1.0 and kind in ["sand", "grass", "stone"]:
-		Fx.dust(world, pp, 0.45)
+		Fx.dust(world, player.last_step_pos, 0.45)
+	elif spd > 3.0 and (kind == "sand" or biome == Island.Biome.PATH):
+		Fx.dust(world, player.last_step_pos, 0.18)
 	elif kind == "water":
 		Fx.splash(world, pp + Vector3(0, 0.1, 0), 0.35)
 
@@ -529,6 +564,8 @@ func _cut_process(delta: float) -> void:
 
 func _exit_tree() -> void:
 	MeshKit.clear_cache()
+	BodyKit.clear_cache()
+	Fx.clear_cache()
 	UiKit.clear_cache()
 
 
@@ -538,6 +575,8 @@ func _notification(what: int) -> void:
 			_store_position()
 		SaveGame.save_game()
 		MeshKit.clear_cache()
+		BodyKit.clear_cache()
+		Fx.clear_cache()
 		UiKit.clear_cache()
 	elif what == NOTIFICATION_APPLICATION_FOCUS_OUT and state == "play" and SaveGame.persist:
 		_open_menu("map")

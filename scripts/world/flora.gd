@@ -3,8 +3,11 @@ extends Node3D
 ## Árboles, pinos, arbustos y rocas (MultiMesh con colisión) y hierba/flores por trozos
 ## que se generan alrededor del foco (el jugador o la cámara).
 
-const GRASS_CHUNK := 24.0
-const GRASS_RADIUS := 3
+const GRASS_CHUNK := 16.0
+const GRASS_RADIUS := 4
+## Hasta dónde (centro del trozo) se ve la hierba de briznas finas (en calidad baja, menos).
+const GRASS_NEAR := 30.0
+var grass_near := GRASS_NEAR
 const GRASS_SPACING := 0.85
 
 var island: Island
@@ -13,6 +16,7 @@ var clear_zones: Array = []   # Vector3(x, z, radio)
 var tree_points: Array[Vector3] = []
 
 var _grass_mesh: ArrayMesh
+var _grass_mesh_near: ArrayMesh
 var _flower_mesh: Mesh
 var _grass_mat: ShaderMaterial
 var _flower_mat: ShaderMaterial
@@ -27,10 +31,13 @@ func build(isl: Island, zones: Array) -> void:
 	_grass_parent.name = "Grass"
 	add_child(_grass_parent)
 	_grass_mesh = _make_grass_mesh()
+	_grass_mesh_near = _make_grass_mesh(true)
 	_grass_mat = ShaderMaterial.new()
 	_grass_mat.shader = load("res://shaders/grass.gdshader")
 	_grass_mat.set_shader_parameter("rim_amount", 0.0)
 	_grass_mat.set_shader_parameter("band_soft", 0.12)
+	_grass_mat.set_shader_parameter("translucency", 0.12)
+	_grass_mat.set_shader_parameter("sheen", 0.03)
 	_flower_mesh = MeshKit.blob(0.09, 0.8, 0.0, 0, 6)
 	_flower_mat = MeshKit.mat(Color.WHITE, 0.0, 0.25, Color(1, 1, 1, 0), 0.0).duplicate()
 	_flower_mat.set_shader_parameter("use_instance_tint", true)
@@ -148,7 +155,7 @@ static func pine_leafy_mesh() -> ArrayMesh:
 		var l: Array = layers[li]
 		var rad: float = l[0]
 		var h: float = l[2]
-		var count := int(18 + rad * 16)
+		var count := int(22 + rad * 20)
 		for k in count:
 			var a := k * 2.39996 + r.randf() * 0.5
 			var t := sqrt(r.randf())
@@ -157,7 +164,7 @@ static func pine_leafy_mesh() -> ArrayMesh:
 			var pos := Vector3(cos(a) * ring, y, sin(a) * ring)
 			var nrm := Vector3(cos(a), 0.9, sin(a)).normalized()
 			var depth := clampf(0.45 + t * 0.4 + float(li) * 0.08, 0.3, 1.0)
-			_add_card(st, n, pos, nrm, depth, r.randf_range(0.5, 0.72), r.randf())
+			_add_card(st, n, pos, nrm, depth, r.randf_range(0.42, 0.6), r.randf())
 			n += 4
 	st.commit(mesh)
 	return mesh
@@ -262,8 +269,8 @@ static func leafy_materials(sway: float, needles := false) -> Array:
 	if needles:
 		leaves.set_shader_parameter("albedo", Color(0.72, 0.84, 0.6))
 		leaves.set_shader_parameter("translucency", 0.18)
-		leaves.set_shader_parameter("leaf_shape", Vector2(0.1, 0.5))
-		leaves.set_shader_parameter("leaf_count", 9.0)
+		leaves.set_shader_parameter("leaf_shape", Vector2(0.06, 0.46))
+		leaves.set_shader_parameter("leaf_count", 11.0)
 	return [core, leaves]
 
 
@@ -297,7 +304,7 @@ func _scatter_trees() -> void:
 	rng.seed = 2026
 	var canopies := []
 	for v in 3:
-		canopies.append(_leafy(leafy_mesh(_canopy_lobes(v), 0.95, 1.35, v), 1.0))
+		canopies.append(_leafy(leafy_mesh(_canopy_lobes(v), 0.9, 1.5, v), 1.0))
 	var canopy_x := [[], [], []]
 	var canopy_t := [[], [], []]
 	var trunk_x := []
@@ -619,34 +626,74 @@ func _scatter_lake_plants() -> void:
 
 # --- Hierba por trozos ---------------------------------------------------------
 
-func _make_grass_mesh() -> ArrayMesh:
+## Mata de hierba. `detail`: briznas finas curvadas de varios tramos (de cerca); si no, pocas
+## briznas de dos tramos (de lejos). UV.y = altura a lo largo de la brizna (0 raíz, 1 punta);
+## UV.x = lado (0 o 1); UV2.x = número aleatorio de la brizna (tono, fase del viento).
+## La normal de cada vértice es la de la brizna, algo abierta hacia los cantos (como una hoja
+## doblada en V): el sombreado ya no es plano.
+func _make_grass_mesh(detail := false) -> ArrayMesh:
 	var r := RandomNumberGenerator.new()
-	r.seed = 9
+	r.seed = 9 if not detail else 17
 	var verts := PackedVector3Array()
 	var uvs := PackedVector2Array()
+	var uv2s := PackedVector2Array()
 	var norms := PackedVector3Array()
-	for b in 7:
+	var blades := 20 if detail else 9
+	var segs := 5 if detail else 2
+	for b in blades:
 		var a := r.randf() * TAU
-		var base := Vector3(cos(a), 0, sin(a)) * r.randf_range(0.0, 0.3)
-		var h := r.randf_range(0.45, 0.85)
-		var w := r.randf_range(0.07, 0.11)
-		var face := r.randf() * TAU
-		var side := Vector3(cos(face), 0, sin(face)) * w
-		var lean := Vector3(cos(a), 0, sin(a)) * r.randf_range(0.05, 0.22)
-		var mid := base + lean * 0.4 + Vector3(0, h * 0.55, 0)
-		var top := base + lean + Vector3(0, h, 0)
-		var p0 := base - side
-		var p1 := base + side
-		var p2 := mid - side * 0.6
-		var p3 := mid + side * 0.6
-		for tri in [[p0, p1, p3, 0.0, 0.0, 0.55], [p0, p3, p2, 0.0, 0.55, 0.55], [p2, p3, top, 0.55, 0.55, 1.0]]:
-			verts.append_array([tri[0], tri[1], tri[2]])
-			uvs.append_array([Vector2(0, tri[3]), Vector2(1, tri[4]), Vector2(0.5, tri[5])])
-			norms.append_array([Vector3.UP, Vector3.UP, Vector3.UP])
+		var base := Vector3(cos(a), 0, sin(a)) * sqrt(r.randf()) * 0.32
+		var h := r.randf_range(0.4, 0.88)
+		var w := r.randf_range(0.03, 0.052) if detail else r.randf_range(0.05, 0.08)
+		var face := a + r.randf_range(-0.6, 0.6) + PI * 0.5
+		var side := Vector3(cos(face), 0, sin(face))
+		var lean_dir := Vector3(cos(a), 0, sin(a)).rotated(Vector3.UP, r.randf_range(-0.5, 0.5))
+		var lean := r.randf_range(0.08, 0.32) * h
+		var rnd := r.randf()
+		var pts: Array[Vector3] = []
+		var halfw: Array[float] = []
+		for k in segs + 1:
+			var t := float(k) / segs
+			# Curva: la brizna sube y se va doblando (más arriba, más se inclina).
+			var p := base + Vector3(0, h * (t - 0.18 * t * t * (lean / maxf(h, 0.01)) * 2.0), 0) + lean_dir * lean * t * t
+			pts.append(p)
+			# Anchura: casi igual hasta media altura y luego se afila hasta la punta.
+			halfw.append(w * (1.0 - pow(t, 2.2)) * (0.85 + 0.15 * (1.0 - t)))
+		for k in segs:
+			var t0 := float(k) / segs
+			var t1 := float(k + 1) / segs
+			var dir0 := (pts[mini(k + 1, segs)] - pts[k]).normalized()
+			var dir1 := (pts[mini(k + 1, segs)] - pts[k]).normalized() if k + 1 >= segs else (pts[k + 2] - pts[k + 1]).normalized()
+			var n0 := side.cross(dir0).normalized()
+			var n1 := side.cross(dir1).normalized()
+			if n0.dot(lean_dir) < 0.0:
+				n0 = -n0
+			if n1.dot(lean_dir) < 0.0:
+				n1 = -n1
+			var a0 := pts[k] - side * halfw[k]
+			var b0 := pts[k] + side * halfw[k]
+			var a1 := pts[k + 1] - side * halfw[k + 1]
+			var b1 := pts[k + 1] + side * halfw[k + 1]
+			var na0 := (n0 - side * 0.45).normalized()
+			var nb0 := (n0 + side * 0.45).normalized()
+			var na1 := (n1 - side * 0.45).normalized()
+			var nb1 := (n1 + side * 0.45).normalized()
+			if k == segs - 1:
+				# Punta: un solo triángulo.
+				verts.append_array([a0, b0, pts[k + 1]])
+				norms.append_array([na0, nb0, n1])
+				uvs.append_array([Vector2(0, t0), Vector2(1, t0), Vector2(0.5, t1)])
+			else:
+				verts.append_array([a0, b0, b1, a0, b1, a1])
+				norms.append_array([na0, nb0, nb1, na0, nb1, na1])
+				uvs.append_array([Vector2(0, t0), Vector2(1, t0), Vector2(1, t1), Vector2(0, t0), Vector2(1, t1), Vector2(0, t1)])
+			for q in (3 if k == segs - 1 else 6):
+				uv2s.append(Vector2(rnd, h))
 	var arrays := []
 	arrays.resize(Mesh.ARRAY_MAX)
 	arrays[Mesh.ARRAY_VERTEX] = verts
 	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	arrays[Mesh.ARRAY_TEX_UV2] = uv2s
 	arrays[Mesh.ARRAY_NORMAL] = norms
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
@@ -676,6 +723,19 @@ func _process(_delta: float) -> void:
 			if n:
 				n.queue_free()
 			_grass_chunks.erase(key)
+
+
+## Calidad de la hierba: con `high`, briznas finas hasta GRASS_NEAR; si no, solo muy cerca.
+func set_grass_detail(high: bool) -> void:
+	var want := GRASS_NEAR if high else 14.0
+	if is_equal_approx(want, grass_near):
+		return
+	grass_near = want
+	for key in _grass_chunks.keys():
+		var n: Node = _grass_chunks[key]
+		if n:
+			n.queue_free()
+	_grass_chunks.clear()
 
 
 ## Construye toda la hierba alrededor del foco de golpe (al cargar o teletransportar).
@@ -736,7 +796,15 @@ func _build_grass_chunk(key: Vector2i) -> Node3D:
 	var holder := Node3D.new()
 	_grass_parent.add_child(holder)
 	if xf.size() > 0:
+		# De cerca, briznas finas de varios tramos; de lejos, la mata sencilla (con fundido).
+		var gn := _make_mm(_grass_mesh_near, _grass_mat, xf, tints)
+		gn.visibility_range_end = grass_near
+		gn.visibility_range_end_margin = 6.0
+		gn.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF
+		holder.add_child(gn)
 		var g := _make_mm(_grass_mesh, _grass_mat, xf, tints)
+		g.visibility_range_begin = grass_near - 6.0
+		g.visibility_range_begin_margin = 6.0
 		g.visibility_range_end = GRASS_CHUNK * GRASS_RADIUS
 		g.visibility_range_end_margin = 8.0
 		g.visibility_range_fade_mode = GeometryInstance3D.VISIBILITY_RANGE_FADE_SELF

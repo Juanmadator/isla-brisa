@@ -88,6 +88,8 @@ var climb_move := Vector2.ZERO
 var gear: ClimbGear
 var _hook_t := 0.0
 ## Vehículos: bici (modifica el movimiento a pie) y barca (estado "boat").
+## Dentro de casa: ni se escala, ni se planea, ni se monta en bici.
+var indoors := false
 var has_bike := false
 var on_bike := false
 var bike_model: Node3D
@@ -111,6 +113,9 @@ func _ready() -> void:
 	floor_constant_speed = true
 	max_slides = 5
 	safe_margin = 0.02
+	# Lía está en la capa de personajes (3) y choca con el mundo (1) y con los vecinos (3).
+	collision_layer = 4
+	collision_mask = 1 | 4
 	var cs := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.radius = RADIUS
@@ -119,8 +124,10 @@ func _ready() -> void:
 	cs.position = Vector3(0, HEIGHT * 0.5, 0)
 	add_child(cs)
 	avatar = Avatar.new()
+	avatar.physics_owner = true
 	add_child(avatar)
 	avatar.build({"backpack": true, "hair_style": "bob"})
+	avatar.foot_planted.connect(_on_foot_planted)
 	gear = ClimbGear.new()
 	gear.name = "ClimbGear"
 	add_child(gear)
@@ -272,7 +279,7 @@ func _ground(dt: float) -> void:
 		_roll_t -= dt
 		target_speed = maxf(target_speed, RUN * 0.9)
 		dir = Vector3(-sin(facing), 0, -cos(facing))
-	_approach(dir * target_speed, 55.0 if dir != Vector3.ZERO else 40.0, dt)
+	_ground_motion(dir, target_speed, dt)
 	velocity.y -= GRAVITY * dt
 	if _jump_buffer > 0.0 and _coyote > 0.0 and _land_lock <= 0.0:
 		_jump()
@@ -292,13 +299,7 @@ func _ground(dt: float) -> void:
 		if _coyote <= 0.0:
 			_set_state("air")
 			return
-	# Pasos
-	var hs := _horizontal(velocity).length()
-	if hs > 0.8 and is_on_floor():
-		_step_timer -= dt * hs
-		if _step_timer <= 0.0:
-			_step_timer = 2.2
-			step.emit(island.biome_at(global_position.x, global_position.z) if island else 2)
+	# Los pasos (sonido, huellas, polvo) los marca el avatar cuando apoya cada pie.
 	if _check_water():
 		return
 	# Escalar (hay que empujar contra la pared un momento) o encaramarse a algo bajo.
@@ -310,8 +311,62 @@ func _ground(dt: float) -> void:
 		_climb_intent = 0.0
 
 
+## Último pie apoyado (para huellas y polvo): posición en el mundo y lado.
+var last_step_pos := Vector3.ZERO
+var last_step_side := 0
+
+
+func _on_foot_planted(side: int, pos: Vector3) -> void:
+	if state != "ground" or on_bike or not is_on_floor():
+		return
+	last_step_pos = pos
+	last_step_side = side
+	step.emit(island.biome_at(pos.x, pos.z) if island else 2)
+
+
+## Movimiento a pie con inercia: rumbo y rapidez por separado. Arranca deprisa y llega a la
+## velocidad máxima poco a poco; a más velocidad, giros más abiertos; si se da la vuelta en
+## seco corriendo, primero frena (derrapa) y luego gira. Cuesta arriba se va más despacio.
+var skidding := false
+
+
+func _ground_motion(dir: Vector3, target_speed: float, dt: float) -> void:
+	var hv := _horizontal(velocity)
+	var cur := hv.length()
+	var heading := hv / cur if cur > 0.05 else Vector3(-sin(facing), 0, -cos(facing))
+	var new_dir := heading
+	skidding = false
+	if dir != Vector3.ZERO:
+		var want := dir.normalized()
+		var ang := heading.signed_angle_to(want, Vector3.UP)
+		if is_on_floor():
+			var n := get_floor_normal()
+			if n.y > 0.3:
+				var up := -(n.x * want.x + n.z * want.z) / n.y
+				target_speed *= clampf(1.0 - up * 0.5, 0.62, 1.08)
+		if cur < 0.8 or _roll_t > 0.0:
+			new_dir = want
+			cur = move_toward(cur, target_speed, 34.0 * dt)
+		elif cur > 4.5 and absf(ang) > 2.3 and not on_bike:
+			# Media vuelta corriendo: frenazo antes de girar.
+			skidding = true
+			cur = move_toward(cur, 0.0, 34.0 * dt)
+		else:
+			var fast := clampf((cur - 2.0) / (SPRINT - 2.0), 0.0, 1.0)
+			var turn_rate := lerpf(13.0, 4.2, fast) * (0.6 if on_bike else 1.0)
+			new_dir = heading.rotated(Vector3.UP, clampf(ang, -turn_rate * dt, turn_rate * dt))
+			var turn_slow := 1.0 - 0.3 * clampf(absf(ang) / PI, 0.0, 1.0) * fast
+			var goal := target_speed * turn_slow
+			var accel := lerpf(30.0, 11.0, clampf(cur / maxf(goal, 0.1), 0.0, 1.0)) if cur < goal else 26.0
+			cur = move_toward(cur, goal, accel * dt)
+	else:
+		cur = move_toward(cur, 0.0, (30.0 if cur > 2.0 else 22.0) * dt)
+	velocity.x = new_dir.x * cur
+	velocity.z = new_dir.z * cur
+
+
 func _jump() -> void:
-	avatar.squash(0.55)
+	avatar.squash(0.25)
 	velocity.y = JUMP_V
 	_jump_buffer = 0.0
 	_coyote = 0.0
@@ -330,7 +385,7 @@ func _air(dt: float) -> void:
 		g *= 1.8
 	velocity.y = maxf(velocity.y - g * dt, -42.0)
 	_fall_peak = maxf(_fall_peak, global_position.y)
-	if _jump_pressed and has_glider and can_use_stamina() and _no_glide <= 0.0 and velocity.y < 3.0 and _height_above_ground() > 1.6:
+	if _jump_pressed and has_glider and not indoors and can_use_stamina() and _no_glide <= 0.0 and velocity.y < 3.0 and _height_above_ground() > 1.6:
 		if on_bike:
 			set_bike(false)
 		_set_state("glide")
@@ -455,6 +510,8 @@ func play_action(action: String, secs: float, look_at := Vector3.INF) -> void:
 		return
 	_action = action
 	_action_t = secs
+	# La mano derecha va hacia lo que coge o acaricia (y la mirada también).
+	avatar.reach_target = look_at
 	if look_at != Vector3.INF:
 		var to := look_at - global_position
 		if Vector2(to.x, to.z).length() > 0.1:
@@ -535,7 +592,7 @@ func _check_water() -> bool:
 # --- Escalada -----------------------------------------------------------------------------
 
 func _try_climb(dir: Vector3, from_ground: bool) -> bool:
-	if exhausted or stamina <= 0.0:
+	if exhausted or stamina <= 0.0 or indoors:
 		return false
 	var chest := global_position + Vector3(0, 1.0, 0)
 	var hit := _ray(chest, chest + dir.normalized() * (RADIUS + 0.75))

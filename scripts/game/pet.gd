@@ -178,6 +178,9 @@ func _process_flying(delta: float, pp: Vector3, b: Basis, idle_player: bool) -> 
 		found_shells.emit(randi_range(dig_amount.x, dig_amount.y))
 
 
+var _gphase := 0.0
+
+
 func _animate(delta: float, moving: bool, swimming: bool) -> void:
 	var sp := _vel.length()
 	var hopper := kind == "bunny" or kind == "chick"
@@ -196,15 +199,42 @@ func _animate(delta: float, moving: bool, swimming: bool) -> void:
 		y += absf(sin(_t * 9.0)) * 0.14
 	body.position.y = lerpf(body.position.y, y - _sit * 0.06, clampf(delta * 16.0, 0.0, 1.0))
 	body.rotation.x = lerpf(body.rotation.x, (-0.35 * _sit) + (0.45 if _dig_t > 0.0 else 0.0), clampf(delta * 8.0, 0.0, 1.0))
+	# Marchas de cuadrúpedo según la velocidad: paso (secuencia lateral), trote (diagonales a
+	# la vez) y galope (las traseras empujan casi juntas y luego las delanteras). Cada pata
+	# apoya hacia atrás y vuelve deprisa por el aire; al galopar el cuerpo cabecea.
+	_gphase = fposmod(_gphase + delta * clampf(1.4 + sp * 0.8, 1.4, 5.2), 1.0)
+	var offs := [0.25, 0.75, 0.0, 0.5]
+	var duty := 0.62
+	var amp := 0.45
+	if sp > 4.2:
+		offs = [0.55, 0.65, 0.0, 0.1]
+		duty = 0.34
+		amp = 0.85
+	elif sp > 1.7:
+		offs = [0.0, 0.5, 0.5, 0.0]
+		duty = 0.45
+		amp = 0.62
+	var gallop := clampf((sp - 4.2) / 1.5, 0.0, 1.0) if moving and not hopper else 0.0
+	# Cabeceo del galope (en el modelo, aparte de la inclinación del cuerpo).
+	model.rotation.x = sin(_gphase * TAU) * 0.14 * gallop
 	for i in legs.size():
 		var front := i < 2
-		var sign_ := 1.0 if (i % 2 == 0) == front else -1.0
-		var swing := s * 0.7 * sign_ if moving and not hopper else 0.0
+		var swing := 0.0
+		if moving and not hopper:
+			var p := fposmod(_gphase + float(offs[i % 4]), 1.0)
+			if p < duty:
+				swing = lerpf(amp, -amp, p / duty)
+			else:
+				var e := (p - duty) / (1.0 - duty)
+				swing = lerpf(-amp, amp, e * e * (3.0 - 2.0 * e))
+			# Las traseras se recogen algo más al galopar.
+			if not front:
+				swing *= 1.0 + 0.25 * gallop
 		if _dig_t > 0.0 and front:
 			swing = sin(_t * 18.0 + i) * 0.9
 		if not front:
 			swing -= _sit * 1.1
-		legs[i].rotation.x = lerpf(legs[i].rotation.x, swing, clampf(delta * 14.0, 0.0, 1.0))
+		legs[i].rotation.x = lerpf(legs[i].rotation.x, swing, clampf(delta * 18.0, 0.0, 1.0))
 	for i in wings.size():
 		var flap := sin(_t * 20.0) * 0.6 if (_happy_t > 0.0 or (hopper and _hop > 0.12)) else 0.0
 		wings[i].rotation.z = flap * (1.0 if i == 0 else -1.0)

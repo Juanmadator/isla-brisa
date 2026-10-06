@@ -16,7 +16,7 @@ func _shot(n: String) -> void:
 
 
 func _view(from: Vector3, to: Vector3, n: String, wait := 1.2) -> void:
-	if not only.is_empty() and not n in only and not (n.begins_with("poses") and "poses" in only):
+	if not only.is_empty() and not n in only and not (n.begins_with("poses") and "poses" in only) and not (n.begins_with("closeup") and "closeup" in only):
 		return
 	cam.global_position = from
 	cam.look_at(to)
@@ -36,6 +36,12 @@ func _ready() -> void:
 			world.sky.hour = float(a.substr(7))
 		if a.begins_with("--only="):
 			only = a.substr(7).split(",")
+		if a.begins_with("--tonemap="):   # probar otros mapeos de tono: linear, filmic, aces, agx
+			world.sky.env.tonemap_mode = ["linear", "reinhard", "filmic", "aces", "agx"].find(a.substr(10)) as Environment.ToneMapper
+		if a.begins_with("--exposure="):
+			world.sky.env.tonemap_exposure = float(a.substr(11))
+		if a.begins_with("--white="):
+			world.sky.env.tonemap_white = float(a.substr(8))
 		if a.begins_with("--nofx="):   # comparar sin efectos: --nofx=ssil,vol,aerial,ssao
 			var fx := a.substr(7).split(",")
 			var env := world.sky.env
@@ -51,6 +57,10 @@ func _ready() -> void:
 	add_child(cam)
 	cam.make_current()
 	var isl := world.island
+	if "bench" in only:
+		await _bench()
+		get_tree().quit()
+		return
 	var v := world.places.anchor("village")
 	await _view(v + Vector3(22, 9, 34), v + Vector3(0, 2, 0), "village", 2.0)
 	var hp := world.places.anchor("post")
@@ -100,9 +110,102 @@ func _ready() -> void:
 	await _view(sp + Vector3(-6, 2.5, 4), sp + Vector3(-200, -2, 76), "seaward")
 	await _view(isl.ground(Vector2(10, 150), 1.6), isl.ground(Vector2(14, 120), 1.5), "ground")
 	await _lineup()
+	await _gait()
 	await _animals()
 	await _poses()
 	get_tree().quit()
+
+
+## Rendimiento: FPS medios (2 s, tras 2 s de calentamiento) en varios puntos de vista.
+func _bench() -> void:
+	var v := world.places.anchor("village")
+	var views := [["pueblo", v + Vector3(22, 9, 34), v + Vector3(0, 2, 0)],
+		["bosque", world.island.ground(Vector2(-128, 52), 2.4), world.island.ground(Vector2(-180, 12), 3.0)],
+		["pradera", world.island.ground(Vector2(10, 150), 1.6), world.island.ground(Vector2(14, 120), 1.5)],
+		["aereo", Vector3(0, 380, 420), Vector3.ZERO]]
+	# Vecinos andando por el pueblo, como en el juego.
+	var holder := Node3D.new()
+	add_child(holder)
+	for i in (0 if OS.has_environment("IB_NOAV") else 12):
+		var av := Avatar.new()
+		holder.add_child(av)
+		av.build({"hair_style": "short"})
+		av.position = world.island.ground(Vector2(v.x, v.z) + Vector2(i * 1.7 - 10.0, 6.0))
+		av.state = "walk" if i % 2 == 0 else "idle"
+		av.speed = 1.3
+	for vw in views:
+		cam.global_position = vw[1]
+		cam.look_at(vw[2])
+		world.set_focus(vw[1])
+		world.flora.warm_up()
+		await get_tree().create_timer(2.0).timeout
+		var t0 := Time.get_ticks_usec()
+		var f0 := Engine.get_frames_drawn()
+		await get_tree().create_timer(2.0).timeout
+		var fps := (Engine.get_frames_drawn() - f0) / ((Time.get_ticks_usec() - t0) / 1e6)
+		print("bench %s: %.1f fps" % [vw[0], fps])
+	holder.queue_free()
+
+
+## Lía de cerca y andando/corriendo de verdad (el nodo avanza): una tira de fotogramas
+## por velocidad, de lado, para revisar el ciclo de marcha y que los pies no patinen.
+func _gait() -> void:
+	if not only.is_empty() and not "gait" in only and not "closeup" in only:
+		return
+	var st := world.places.anchor("stall")
+	var base := Vector2(st.x, st.z) + Vector2(-6.0, 3.0)
+	var av := Avatar.new()
+	add_child(av)
+	av.build({"backpack": true, "hair_style": "bob"})
+	av.position = world.island.ground(base)
+	av.rotation.y = PI
+	av.state = "idle"
+	var mid := av.position
+	# Sin hierba, para ver bien los pies.
+	world.flora.get_node("Grass").visible = false
+	if only.is_empty() or "closeup" in only:
+		await _view(mid + Vector3(-1.0, 1.3, 2.2), mid + Vector3(0, 0.95, 0), "closeup", 1.0)
+		await _view(mid + Vector3(1.6, 1.0, -1.4), mid + Vector3(0, 0.85, 0), "closeup_back", 0.5)
+	if not only.is_empty() and not "gait" in only:
+		av.queue_free()
+		world.flora.get_node("Grass").visible = true
+		return
+	for spd: float in [1.3, 6.6, 10.2]:
+		av.rotation.y = PI * 0.5
+		var start := base + Vector2(4.0, 0.0)
+		av.position = world.island.ground(start)
+		av.state = "walk"
+		av.speed = spd
+		var frames: Array[Image] = []
+		var t := 0.0
+		var shot_every := 0.6 / 7.0 * (6.6 / maxf(spd, 1.0)) if spd > 2.0 else 0.11
+		var next := 0.4
+		var dist := 0.0
+		while frames.size() < 8:
+			var dt := get_process_delta_time()
+			t += dt
+			dist += spd * dt
+			var p := start + Vector2(-dist, 0.0)
+			av.position = world.island.ground(p)
+			if t >= next:
+				next += shot_every
+				cam.global_position = av.position + Vector3(0.0, 0.9, 3.4)
+				cam.look_at(av.position + Vector3(0, 0.75, 0))
+				await RenderingServer.frame_post_draw
+				frames.append(get_viewport().get_texture().get_image())
+			else:
+				await get_tree().process_frame
+		var w := frames[0].get_width() / 4
+		var h := frames[0].get_height() / 2
+		var sheet := Image.create(w * 4, h * 2, false, frames[0].get_format())
+		for i in frames.size():
+			var f := frames[i]
+			var c := f.get_region(Rect2i(f.get_width() / 2 - w / 2, f.get_height() / 2 - h / 2, w, h))
+			sheet.blit_rect(c, Rect2i(0, 0, w, h), Vector2i((i % 4) * w, (i / 4) * h))
+		sheet.save_png(ProjectSettings.globalize_path("res://captures/look_gait_%d.png" % int(spd * 10)))
+		print("captura: gait ", spd, " bufanda: ", av._scarf_pts.map(func(q): return (av.global_transform.affine_inverse() * q).snappedf(0.01)))
+	av.queue_free()
+	world.flora.get_node("Grass").visible = true
 
 
 ## Hoja de poses: Lía en varias animaciones, de lado, en dos tandas de cinco.
@@ -126,8 +229,12 @@ func _poses() -> void:
 			av.speed = st[1]
 			av.climb_move = Vector2(0, 1) if st[0] == "climb" else Vector2.ZERO
 			av.roll_k = 0.35
+			if st[0] in ["kneel", "pickup"]:
+				av.reach_target = av.position + Vector3(-0.5, 0.06, 0.05)
 		var mid := world.island.ground(base + Vector2(3.2, 0))
-		await _view(mid + Vector3(0, 1.3, 6.2), mid + Vector3(0, 0.9, 0), "poses_%d" % batch, 0.9)
+		world.flora.get_node("Grass").visible = false
+		await _view(mid + Vector3(0, 1.1, 5.0), mid + Vector3(0, 0.8, 0), "poses_%d" % batch, 0.9)
+		world.flora.get_node("Grass").visible = true
 		holder.queue_free()
 
 

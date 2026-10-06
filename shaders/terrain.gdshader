@@ -71,11 +71,48 @@ vec4 rock_layer(float u, float wy, vec3 c) {
 	return vec4(rc, (vor.z - 0.5) * (1.0 - seam));
 }
 
+float fbm2(vec2 p) {
+	float v = 0.0;
+	float a = 0.5;
+	for (int i = 0; i < 4; i++) {
+		v += a * vnoise(p);
+		p = p * 2.07 + vec2(5.3, 1.7);
+		a *= 0.5;
+	}
+	return v / 0.9375;
+}
+
+// Relieve: inclina la normal según el gradiente en pantalla de la altura `h` (en metros).
+vec3 bump(vec3 nrm, vec3 vpos, float h) {
+	vec3 dpdx = dFdx(vpos);
+	vec3 dpdy = dFdy(vpos);
+	vec3 r1 = cross(dpdy, nrm);
+	vec3 r2 = cross(nrm, dpdx);
+	float det = dot(dpdx, r1);
+	vec3 grad = sign(det) * (dFdx(h) * r1 + dFdy(h) * r2);
+	return normalize(abs(det) * nrm - grad);
+}
+
 void fragment() {
 	vec3 c = COLOR.rgb;
+	float dist = -VERTEX.z;
+	// El detalle fino solo se ve (y solo se calcula en el relieve) de cerca: sin parpadeo.
+	float near = 1.0 - smoothstep(18.0, 55.0, dist);
+	float mid = 1.0 - smoothstep(60.0, 160.0, dist);
 	float n = vnoise(wpos.xz * 0.18) * 0.6 + vnoise(wpos.xz * 0.9) * 0.4;
 	float patches = smoothstep(0.45, 0.55, n);
 	c *= mix(0.94, 1.06, patches);
+	// Suelo: grano de tierra y matitas (en el color y en el relieve).
+	float gn = 0.5;
+	float fine = 0.5;
+	if (mid > 0.0) {
+		gn = fbm2(wpos.xz * 1.3);
+		if (near > 0.0) {
+			fine = vnoise(wpos.xz * 7.0);
+		}
+	}
+	c *= mix(0.94, 1.05, gn * mid + 0.5 * (1.0 - mid)) * mix(0.97, 1.03, mix(0.5, fine, near));
+	float h = (gn * 0.035 * mid + fine * 0.008 * near);
 	float steep = (1.0 - smoothstep(0.5, 0.78, wnrm.y)) * smoothstep(0.15, 0.5, COLOR.a);
 	if (steep > 0.01) {
 		// La roca se dibuja dos veces (proyectada a lo largo de x y de z) y se mezcla según
@@ -85,12 +122,32 @@ void fragment() {
 		vec4 ra = rock_layer(wpos.z, wpos.y, c);
 		vec4 rb = rock_layer(wpos.x, wpos.y, c);
 		vec4 rk = ra * wxz.x + rb * wxz.y;
-		c = mix(c, rk.rgb, steep);
-		// Repisas: la normal se inclina hacia arriba en el canto de cada estrato.
+		// Rugosidad de la piedra a dos escalas (palmos y centímetros).
+		float rf = 0.5;
+		float rfine = 0.5;
+		if (mid > 0.0) {
+			rf = fbm2(wpos.zy * 1.4) * wxz.x + fbm2(wpos.xy * 1.4 + 7.0) * wxz.y;
+			if (near > 0.0) {
+				rfine = vnoise(wpos.zy * 9.0) * wxz.x + vnoise(wpos.xy * 9.0 + 3.0) * wxz.y;
+			}
+		}
+		vec3 rock = rk.rgb * mix(0.86, 1.08, mix(0.5, rf, mid)) * mix(0.95, 1.04, mix(0.5, rfine, near));
+		// Musgo y líquenes en lo que mira hacia arriba y en las juntas húmedas.
+		float moss = smoothstep(0.42, 0.7, wnrm.y + (fbm2(wpos.xz * 0.35 + wpos.y * 0.2) - 0.5) * 0.5) * 0.7;
+		rock = mix(rock, rock * vec3(0.78, 0.92, 0.62), moss);
+		c = mix(c, rock, steep);
+		// Repisas de los estratos (surco bajo cada uno), bloques que sobresalen y rugosidad.
 		float y = wpos.y + (vnoise(vec2((wpos.x + wpos.z) * 0.06, wpos.y * 0.03)) - 0.5) * 3.0;
 		float lf = fract(y / 4.0);
-		vec3 tilt = (VIEW_MATRIX * vec4(0.0, (lf - 0.5) * 0.3 + rk.a * 0.25, 0.0, 0.0)).xyz;
-		NORMAL = normalize(mix(NORMAL, normalize(NORMAL + tilt), steep));
+		// Perfil continuo (sin saltos: un escalón brusco haría líneas punteadas en el relieve).
+		float ledge = smoothstep(0.0, 0.16, lf) * (1.0 - smoothstep(0.84, 1.0, lf)) * 0.16;
+		// Las repisas tienen un escalón brusco: su relieve solo de cerca (de lejos haría líneas).
+		float near2 = 1.0 - smoothstep(25.0, 70.0, dist);
+		float hr = ledge * 1.3 * near2 + rk.a * 0.2 + rf * 0.18 * mid + rfine * 0.015 * near;
+		h = mix(h, hr, steep);
+	}
+	if (mid > 0.0) {
+		NORMAL = bump(NORMAL, VERTEX, h * mid);
 	}
 	ALBEDO = c;
 	ROUGHNESS = 1.0;

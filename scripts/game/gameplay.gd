@@ -1318,6 +1318,18 @@ func _process(dt: float) -> void:
 			var pd := Vector2(pp.x - _pet_interact["pos"].x, pp.z - _pet_interact["pos"].z).length()
 			if pd < _pet_interact["radius"]:
 				current = _pet_interact
+	# Lía mira a quien tiene cerca (o a lo que puede usar).
+	var look := Vector3.INF
+	var look_d := 5.5
+	for id in npcs:
+		var n: Npc = npcs[id]
+		var nd := n.position.distance_to(pp)
+		if nd < look_d:
+			look_d = nd
+			look = n.position + Vector3(0, 1.45 * float(n.avatar.spec.get("height", 1.0)), 0)
+	if look == Vector3.INF and not current.is_empty():
+		look = (current["pos"] as Vector3) + Vector3(0, 0.4, 0)
+	player.avatar.look_target = look
 	# Descubrimientos y ambiente
 	_discover_t -= dt
 	if _discover_t <= 0.0:

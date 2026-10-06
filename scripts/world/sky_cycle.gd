@@ -43,7 +43,10 @@ func _ready() -> void:
 	env = Environment.new()
 	env.background_mode = Environment.BG_SKY
 	env.sky = sky
-	env.ambient_light_source = Environment.AMBIENT_SOURCE_COLOR
+	# Luz ambiental direccional: mezcla del color de cada hora con la radiancia del cielo
+	# (azul por arriba, rebote verdoso del suelo por abajo). Da volumen a lo que está en sombra.
+	env.ambient_light_source = Environment.AMBIENT_SOURCE_SKY
+	env.ambient_light_sky_contribution = 0.25
 	env.reflected_light_source = Environment.REFLECTION_SOURCE_DISABLED
 	# Lineal a propósito: los colores del juego están ajustados para él (AgX y ACES los lavan).
 	env.tonemap_mode = Environment.TONE_MAPPER_LINEAR
@@ -98,7 +101,9 @@ func _ready() -> void:
 	sun.shadow_blur = 0.6
 	sun.shadow_bias = 0.04
 	sun.shadow_normal_bias = 1.2
-	sun.light_angular_distance = 0.0
+	# Sombras con penumbra (como el sol real, 0,5° de diámetro aparente, algo exagerado):
+	# nítidas en el contacto y difuminadas a medida que se alejan del objeto.
+	sun.light_angular_distance = 0.6
 	add_child(sun)
 	apply()
 
@@ -178,6 +183,7 @@ func apply() -> void:
 	RenderingServer.global_shader_parameter_set("sky_horizon", k[2])
 	RenderingServer.global_shader_parameter_set("sky_sun", sun_col)
 	RenderingServer.global_shader_parameter_set("sky_sun_dir", sd)
+	sky_mat.set_shader_parameter("ground_color", (k[5] as Color) * Color(0.62, 0.72, 0.5) + (k[3] as Color) * (k[4] as float) * Color(0.16, 0.2, 0.1))
 	sky_mat.set_shader_parameter("cloud_light", k[6])
 	sky_mat.set_shader_parameter("cloud_shade", k[7])
 	sky_mat.set_shader_parameter("night", night)

@@ -139,6 +139,70 @@ static func rays(color := Color(1.0, 0.85, 0.45), size := 3.2) -> MeshInstance3D
 	return mi
 
 
+## Huellas en la arena: calcomanías reutilizadas (las más viejas se borran solas).
+static var _prints: Array[Decal] = []
+static var _print_i := 0
+static var _print_tex: ImageTexture
+const PRINTS := 64
+
+
+static func _footprint_texture() -> ImageTexture:
+	if _print_tex:
+		return _print_tex
+	# Suela: puntera ovalada y tacón aparte, con el borde suave y algo de arena removida.
+	var w := 48
+	var h := 112
+	var img := Image.create(w, h, false, Image.FORMAT_RGBA8)
+	for y in h:
+		for x in w:
+			var u := (x + 0.5) / w * 2.0 - 1.0
+			var v := (y + 0.5) / h
+			var d := 9.0
+			# Puntera (arriba) y tacón (abajo), dos elipses.
+			var toe := Vector2(u / 0.92, (v - 0.33) / 0.3).length()
+			var heel := Vector2(u / 0.78, (v - 0.8) / 0.17).length()
+			d = minf(toe, heel)
+			var a := 1.0 - smoothstep(0.8, 1.0, d)
+			# Dibujo de la suela: surcos.
+			var groove := 0.85 + 0.15 * sin(v * 70.0)
+			img.set_pixel(x, y, Color(0.42, 0.33, 0.22, a * 0.5 * groove))
+	img.generate_mipmaps()
+	_print_tex = ImageTexture.create_from_image(img)
+	return _print_tex
+
+
+static func footprint(parent: Node, pos: Vector3, yaw: float, side: int) -> void:
+	if not is_instance_valid(parent):
+		return
+	var d: Decal
+	if _prints.size() < PRINTS:
+		d = Decal.new()
+		d.texture_albedo = _footprint_texture()
+		d.size = Vector3(0.13, 0.22, 0.27)
+		d.upper_fade = 0.6
+		d.lower_fade = 0.6
+		d.albedo_mix = 1.0
+		d.distance_fade_enabled = true
+		d.distance_fade_begin = 30.0
+		d.distance_fade_length = 10.0
+		parent.add_child(d)
+		_prints.append(d)
+	else:
+		d = _prints[_print_i % PRINTS]
+		if not is_instance_valid(d):
+			_prints.clear()
+			return
+	_print_i += 1
+	var right := Vector3(cos(yaw), 0, -sin(yaw))
+	d.global_transform = Transform3D(Basis(Vector3.UP, yaw + (side * 2 - 1) * 0.08), pos + right * (side * 2 - 1) * 0.02)
+	d.modulate = Color(1, 1, 1, 1)
+	var tw := d.create_tween()
+	tw.tween_interval(14.0)
+	tw.tween_property(d, "modulate:a", 0.0, 10.0)
+
+
 static func clear_cache() -> void:
 	_puff_mesh = null
 	_spark_mesh = null
+	_prints.clear()
+	_print_tex = null

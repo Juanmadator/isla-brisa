@@ -35,6 +35,24 @@ varying vec3 wpos;
 #include "res://shaders/noise.gdshaderinc"
 #include "res://shaders/sky_common.gdshaderinc"
 
+// La versión web usa el renderizador Compatibility (OpenGL): ahí la profundidad no está invertida
+// (el cielo vale 1) y la z de NDC va de -1 a 1. En Forward+ (Vulkan) el cielo vale 0 y z = d.
+float ndc_z(float d) {
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	return d * 2.0 - 1.0;
+#else
+	return d;
+#endif
+}
+
+bool is_sky_depth(float d) {
+#if CURRENT_RENDERER == RENDERER_COMPATIBILITY
+	return d >= 0.999999;
+#else
+	return d <= 0.000001;
+#endif
+}
+
 // Traza el rayo reflejado por la pantalla con la profundidad; devuelve color y cobertura (a).
 vec4 trace_reflection(vec3 vpos, vec3 rd, mat4 proj, mat4 inv_proj) {
 	float stp = clamp(-vpos.z * 0.025, 0.2, 2.0);
@@ -53,10 +71,10 @@ vec4 trace_reflection(vec3 vpos, vec3 rd, mat4 proj, mat4 inv_proj) {
 			break;
 		}
 		float d = texture(depth_tex, uv).r;
-		if (d <= 0.000001) {
+		if (is_sky_depth(d)) {
 			continue;   // cielo: no tapa nada
 		}
-		vec4 sp = inv_proj * vec4(uv * 2.0 - 1.0, d, 1.0);
+		vec4 sp = inv_proj * vec4(uv * 2.0 - 1.0, ndc_z(d), 1.0);
 		float sz = sp.z / sp.w;
 		if (p.z < sz && sz - p.z < max(stp * 2.5, 0.6)) {
 			// Afinar entre el paso anterior y este.
@@ -66,7 +84,7 @@ vec4 trace_reflection(vec3 vpos, vec3 rd, mat4 proj, mat4 inv_proj) {
 				vec3 m = (a + b) * 0.5;
 				vec4 mc = proj * vec4(m, 1.0);
 				vec2 muv = mc.xy / mc.w * 0.5 + 0.5;
-				vec4 ms = inv_proj * vec4(muv * 2.0 - 1.0, texture(depth_tex, muv).r, 1.0);
+				vec4 ms = inv_proj * vec4(muv * 2.0 - 1.0, ndc_z(texture(depth_tex, muv).r), 1.0);
 				if (m.z < ms.z / ms.w) {
 					b = m;
 				} else {
@@ -97,18 +115,24 @@ void fragment() {
 		discard;
 	}
 	float depth = texture(depth_tex, SCREEN_UV).r;
-	vec4 upos = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, depth, 1.0);
+	vec4 upos = INV_PROJECTION_MATRIX * vec4(SCREEN_UV * 2.0 - 1.0, ndc_z(depth), 1.0);
 	upos.xyz /= upos.w;
 	float water_depth = max(VERTEX.z - upos.z, 0.0);
 	float t = clamp(water_depth / depth_range, 0.0, 1.0);
 	vec3 col = mix(shallow_color.rgb, deep_color.rgb, smoothstep(0.0, 1.0, t));
 
-	// Espuma: línea de orilla con borde irregular + olas que llegan a la playa.
+	// Espuma: línea de orilla con borde irregular + olas que llegan a la playa. La espuma es
+	// de burbujas (ruido a dos escalas que se mueve): se rompe en jirones en vez de ser una
+	// franja blanca lisa; solo el filo que lame la arena es continuo.
 	float n = vnoise(wpos.xz * 0.6 + vec2(TIME * 0.3, TIME * 0.2));
+	float bubbles = vnoise(wpos.xz * 2.6 + vec2(TIME * 0.45, -TIME * 0.3)) * 0.6 + vnoise(wpos.xz * 6.5 - vec2(TIME * 0.2, TIME * 0.5)) * 0.4;
 	float edge = 1.0 - smoothstep(foam_width * (0.55 + 0.45 * n), foam_width * (0.6 + 0.45 * n), water_depth);
+	float lip = 1.0 - smoothstep(0.03, 0.1 + 0.08 * n, water_depth);
+	edge = max(lip, edge * smoothstep(0.32 + water_depth / foam_width * 0.35, 0.5 + water_depth / foam_width * 0.35, bubbles));
 	float stripe_phase = fract(water_depth * 0.55 - TIME * 0.35);
 	float stripes = smoothstep(0.8, 0.9, stripe_phase) * (1.0 - smoothstep(0.92, 0.99, stripe_phase));
 	stripes *= (1.0 - smoothstep(0.8, 3.6, water_depth)) * smoothstep(0.3, 0.5, vnoise(wpos.xz * 0.25 + TIME * 0.05)) * 0.7;
+	stripes *= smoothstep(0.35, 0.6, bubbles);
 	float foam = max(edge, stripes);
 
 	// Normal del agua: pendiente de las olas grandes y rizos finos (que se apagan a lo lejos).
@@ -147,8 +171,11 @@ void fragment() {
 	// Estela del sol (o de la luna) y destellos, del color de la luz de esta hora.
 	vec3 refl = reflect(-sun, nrm);
 	float sun_spec = pow(max(dot(refl, view_dir), 0.0), 160.0) * 2.5;
-	float sparkle_noise = vnoise(wpos.xz * 1.4 + vec2(TIME * 0.7, -TIME * 0.5)) * vnoise(wpos.xz * 0.7 - TIME * 0.3);
-	float glint = smoothstep(0.3, 0.45, sparkle_noise) * pow(max(dot(refl, view_dir), 0.0), 24.0);
+	// Destellos: muchos y pequeños (crestas de los rizos que pillan el sol), más grandes a lo
+	// lejos para que no parpadeen.
+	float gsc = mix(5.5, 1.3, smoothstep(8.0, 140.0, cam_d));
+	float sparkle_noise = vnoise(wpos.xz * gsc + vec2(TIME * 0.9, -TIME * 0.6)) * vnoise(wpos.xz * gsc * 0.63 - TIME * 0.45 + 3.7);
+	float glint = smoothstep(0.42, 0.58, sparkle_noise) * pow(max(dot(refl, view_dir), 0.0), 18.0) * 1.3;
 	float low = smoothstep(0.42, 0.06, sky_sun_dir.y);
 	vec3 sun_col = mix(vec3(1.0, 0.96, 0.86), sky_sun.rgb * vec3(1.15, 0.85, 0.6), low) * (1.0 - night_amount);
 	sun_col += vec3(0.6, 0.7, 1.0) * night_amount * 0.35;

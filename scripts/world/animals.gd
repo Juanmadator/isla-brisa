@@ -251,18 +251,58 @@ static func donkey() -> Node3D:
 static func animate(model: Node3D, phase: float, moving: bool, grazing: float, t: float) -> void:
 	var body := model.get_node("Body") as Node3D
 	var head := body.get_node("Head") as Node3D
-	var s := sin(phase)
-	var legs := 0
+	# Peso de la marcha (arranca y se para con suavidad) y una semilla propia por animal.
+	var mv: float = model.get_meta("mv", 0.0)
+	mv = move_toward(mv, 1.0 if moving else 0.0, 0.06)
+	model.set_meta("mv", mv)
+	if not model.has_meta("seed"):
+		model.set_meta("seed", randf() * 100.0)
+	var sd: float = model.get_meta("seed")
+	var cycle := phase / TAU
+	var legs: Array[Node3D] = []
 	for c in body.get_children():
 		if c.name.begins_with("Leg"):
-			var front := legs < 2
-			var sign_ := 1.0 if (legs % 2 == 0) == front else -1.0
-			(c as Node3D).rotation.x = s * 0.5 * sign_ if moving else lerpf((c as Node3D).rotation.x, 0.0, 0.2)
-			legs += 1
-	body.position.y = absf(s) * 0.025 if moving else 0.0
-	# rotation.x negativo baja el morro (que apunta a -Z).
+			legs.append(c as Node3D)
+	# Cuadrúpedos: paso de cuatro tiempos en secuencia lateral (trasera izq., delantera izq.,
+	# trasera dcha., delantera dcha.); aves: patas alternas. Apoyo largo hacia atrás y paso
+	# rápido hacia delante; en el aire la pata se acorta un poco (como si doblara la rodilla).
+	var offs := [0.25, 0.75, 0.0, 0.5] if legs.size() >= 4 else [0.0, 0.5]
+	var duty := 0.68 if legs.size() >= 4 else 0.55
+	var amp := 0.32 if legs.size() >= 4 else 0.45
+	for i in legs.size():
+		var p := fposmod(cycle + float(offs[i % offs.size()]), 1.0)
+		var ang := 0.0
+		var lift := 0.0
+		if p < duty:
+			ang = lerpf(amp, -amp, p / duty)
+		else:
+			var s := (p - duty) / (1.0 - duty)
+			var e := s * s * (3.0 - 2.0 * s)
+			ang = lerpf(-amp, amp, e)
+			lift = sin(PI * s)
+		var leg := legs[i]
+		leg.rotation.x = lerpf(leg.rotation.x * 0.8, ang, mv)
+		leg.scale.y = lerpf(1.0, 1.0 - 0.1 * lift, mv)
+	# Cuerpo: sube y baja dos veces por ciclo, se mece de lado a lado y respira.
+	var step2 := sin(cycle * TAU * 2.0)
+	body.position.y = (step2 * 0.012 + 0.012) * mv
+	body.rotation.z = sin(cycle * TAU) * 0.025 * mv
+	body.rotation.x = sin(cycle * TAU * 2.0 + 0.6) * 0.012 * mv
+	body.scale = Vector3(1.0 + sin(t * 1.6 + sd) * 0.008, 1.0 + sin(t * 1.6 + sd) * 0.006, 1.0)
+	# Cabeza: cabecea con cada paso; parada, pasta o mira alrededor de vez en cuando.
 	var down := float(model.get_meta("graze", 0.9))
-	head.rotation.x = lerpf(head.rotation.x, -grazing * down + sin(t * 1.3) * 0.04, 0.1)
+	var look := sin(t * 0.31 + sd) * 0.5 * (1.0 - mv) * (1.0 - grazing)
+	var nod := sin(cycle * TAU * 2.0 - 0.8) * 0.07 * mv
+	head.rotation.x = lerpf(head.rotation.x, -grazing * down + sin(t * 1.3 + sd) * 0.04 + nod, 0.1)
+	head.rotation.y = lerpf(head.rotation.y, look, 0.05)
+	# Rabo: casi quieto y de vez en cuando un coletazo (para las moscas).
 	var tail := body.get_node_or_null("Tail") as Node3D
 	if tail:
-		tail.rotation.z = sin(t * 3.0 + phase) * 0.35
+		var swish := 0.1 + 0.5 * pow(maxf(sin(t * 0.45 + sd * 3.0), 0.0), 6.0)
+		tail.rotation.z = sin(t * 5.0 + phase) * swish
+		tail.rotation.x = 0.12 * mv
+	# Orejas: algún respingo suelto.
+	for c in head.get_children():
+		if c.name.begins_with("Ear"):
+			var flick := pow(maxf(sin(t * 0.8 + sd + (1.7 if c.name.ends_with("1") else 0.0)), 0.0), 12.0)
+			(c as Node3D).rotation.x = -flick * 0.5

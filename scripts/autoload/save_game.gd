@@ -32,7 +32,10 @@ func default_data() -> Dictionary:
 		"bag": {},
 		"day": 0,
 		"daily": {},
-		"owned": {"scarf_red": true, "glider_classic": true, "hat_none": true, "outfit_travel": true, "pet_none": true},
+		"owned": {"scarf_red": true, "glider_classic": true, "hat_none": true, "outfit_travel": true, "pet_none": true,
+			"furn_wall_white": true, "furn_floor_planks": true},
+		# Casa de Lía: hueco -> mueble ("wall" y "floor": paredes y suelo).
+		"home": {"wall": "furn_wall_white", "floor": "furn_floor_planks"},
 		"equipped": {"scarf": "scarf_red", "hat": "hat_none", "glider": "glider_classic", "outfit": "outfit_travel", "pet": "pet_none"},
 		"tracked": "",
 		"play_time": 0.0,
@@ -77,7 +80,7 @@ func save_game() -> void:
 func _merge(base: Dictionary, incoming: Dictionary) -> void:
 	for k in incoming:
 		if base.has(k) and base[k] is Dictionary and incoming[k] is Dictionary:
-			if k in ["flags", "collected", "discovered", "owned", "equipped", "journal", "fish", "bag", "daily"]:
+			if k in ["flags", "collected", "discovered", "owned", "equipped", "journal", "fish", "bag", "daily", "home"]:
 				base[k] = incoming[k]
 			else:
 				_merge(base[k], incoming[k])
@@ -202,6 +205,19 @@ func equip(slot: String, id: String) -> void:
 
 
 # --- Mochila (objetos que se gastan) y cosas que se renuevan cada día --------------------
+
+## Casa de Lía: mueble puesto en un hueco ("" si está vacío).
+func home_item(slot: String) -> String:
+	return data["home"].get(slot, "")
+
+
+func set_home_item(slot: String, id: String) -> void:
+	if id == "":
+		data["home"].erase(slot)
+	else:
+		data["home"][slot] = id
+	changed.emit()
+
 
 func bag_count(id: String) -> int:
 	return int(data["bag"].get(id, 0))

@@ -3,6 +3,8 @@ extends Control
 ## Caja de diálogo con nombre, texto que se escribe letra a letra y "blips" de voz.
 
 signal finished
+## Empieza una frase de `who` (para que hable su personaje).
+signal line_started(who: String)
 
 var lines: Array = []
 var index := 0
@@ -73,6 +75,7 @@ func _show_line() -> void:
 		_voice_pitch = VOICES["Rosa"]
 	if who.begins_with("Abuela"):
 		_voice_pitch = VOICES["Olga"]
+	line_started.emit(who)
 
 
 func is_typing() -> bool:

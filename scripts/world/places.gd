@@ -224,7 +224,7 @@ func _build_village() -> void:
 ## Sastrería de Valeria (casa del tejado frambuesa) y refugio de animales de Lola
 ## (casa del tejado verde, con un cercado al lado).
 func _build_shops(v: Vector2) -> void:
-	for shop in [["house_c", "tailor", "Sastrería"], ["house_d", "petshop", "Refugio de Lola"]]:
+	for shop in [["house_c", "tailor", "Sastrería"], ["house_d", "petshop", "Refugio de Lola"], ["house_a", "carpenter", "Carpintería"]]:
 		var hp: Vector3 = anchors[shop[0]]
 		var door: Vector3 = anchors[shop[0] + "_door"]
 		var yaw: float = yaws[shop[0]]
@@ -236,6 +236,46 @@ func _build_shops(v: Vector2) -> void:
 		var sign_p := door + out * 2.2 - right * 2.0
 		var sign_n := Props.signpost(shop[2])
 		_place(sign_n, Vector2(sign_p.x, sign_p.z), yaw)
+	# Carpintería de Martín: caballete con un tablón, pila de tablas y una silla recién hecha.
+	var cp: Vector3 = anchors["house_a"]
+	var cout: Vector3 = anchors["house_a_door"] - cp
+	cout.y = 0.0
+	cout = cout.normalized()
+	var cright: Vector3 = cout.cross(Vector3.UP).normalized()
+	var cyaw: float = yaws["house_a"]
+	var bench_p: Vector3 = cp + cout * 4.4 + cright * 3.4
+	var horse := Node3D.new()
+	for sx: float in [-0.7, 0.7]:
+		for k: float in [-1.0, 1.0]:
+			Props._box(horse, Vector3(0.07, 0.8, 0.07), Props.WOOD_DARK, Vector3(sx, 0.38, k * 0.16), Vector3(k * 14.0, 0, 0), 0.015)
+		Props._box(horse, Vector3(0.12, 0.08, 0.1), Props.WOOD_DARK, Vector3(sx, 0.78, 0), Vector3.ZERO, 0.015)
+	Props._box(horse, Vector3(2.0, 0.06, 0.3), Furniture.PINE, Vector3(0, 0.85, 0), Vector3(0, 0, 3), 0.015)
+	Props._box(horse, Vector3(0.36, 0.05, 0.12), Color(0.55, 0.55, 0.58), Vector3(0.35, 0.9, 0.05), Vector3(0, 25, 0), 0.01)
+	_place(horse, Vector2(bench_p.x, bench_p.z), cyaw + 0.3, 0.05)
+	obstacles.append([island.ground(Vector2(bench_p.x, bench_p.z)), 1.4])
+	var stack_p: Vector3 = cp + cout * 2.4 + cright * 4.6
+	var stack := Node3D.new()
+	for k in 6:
+		Props._box(stack, Vector3(1.8, 0.07, 0.24), Furniture.PINE.darkened(0.05 * (k % 3)), Vector3(0, 0.04 + k * 0.075, (k % 2) * 0.05 - 0.15 + (k >> 1) * 0.12), Vector3(0, (k % 3 - 1) * 3.0, 0), 0.01)
+	_place(stack, Vector2(stack_p.x, stack_p.z), cyaw, 0.02)
+	var chair := Node3D.new()
+	Furniture._chair(chair, Furniture.PINE, Vector3.ZERO, 0.0)
+	var chair_p: Vector3 = cp + cout * 3.2 - cright * 2.6
+	_place(chair, Vector2(chair_p.x, chair_p.z), cyaw + 0.5, 0.02)
+	# Casa de Lía (tejado morado): cartel y buzón.
+	var lp: Vector3 = anchors["house_b"]
+	var lout: Vector3 = anchors["house_b_door"] - lp
+	lout.y = 0.0
+	lout = lout.normalized()
+	var lright: Vector3 = lout.cross(Vector3.UP).normalized()
+	var lsign_p: Vector3 = anchors["house_b_door"] + lout * 1.6 + lright * 2.2
+	_place(Props.signpost("Casa de Lía"), Vector2(lsign_p.x, lsign_p.z), yaws["house_b"])
+	var mail := Node3D.new()
+	Props._box(mail, Vector3(0.08, 1.0, 0.08), Props.WOOD_DARK, Vector3(0, 0.5, 0), Vector3.ZERO, 0.015)
+	Props._box(mail, Vector3(0.3, 0.26, 0.4), Color(0.62, 0.4, 0.82), Vector3(0, 1.1, 0), Vector3.ZERO, 0.06)
+	Props._box(mail, Vector3(0.03, 0.18, 0.05), Color(0.9, 0.3, 0.3), Vector3(0.17, 1.2, 0.1), Vector3.ZERO, 0.01)
+	var mail_p: Vector3 = anchors["house_b_door"] + lout * 1.4 - lright * 2.4
+	_place(mail, Vector2(mail_p.x, mail_p.z), yaws["house_b"], 0.05)
 	# Tendedero con ropa delante de la sastrería.
 	var tp: Vector3 = anchors["house_c"]
 	var tout: Vector3 = anchors["house_c_door"] - tp

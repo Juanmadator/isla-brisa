@@ -17,6 +17,10 @@ Tráiler: [docs/trailer.mp4](docs/trailer.mp4)
 
 ![Antes y después](docs/antes_despues.jpg)
 
+## Próximos pasos
+
+Lo siguiente es optimizar al máximo los FPS, ganar fluidez y añadir objetos con física que se pueden empujar, coger y lanzar sin atravesar nada. El plan detallado y las mediciones están en [docs/SIGUIENTES_PASOS.md](docs/SIGUIENTES_PASOS.md).
+
 ## Cómo se juega
 
 | Acción | Teclado y ratón | Mando |

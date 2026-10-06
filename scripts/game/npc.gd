@@ -28,6 +28,8 @@ var night := false
 const WALK_SPEED := 1.3
 var _goal := Vector3.ZERO
 var _pause := 2.0
+## Velocidad actual al pasear (arranca y frena poco a poco).
+var _spd := 0.0
 
 var _label: Label3D
 var _mark: Label3D
@@ -69,6 +71,9 @@ func setup(npc_id: String, data: Dictionary) -> void:
 	_mark.visible = false
 	add_child(_mark)
 	var body := StaticBody3D.new()
+	# Capa de personajes: Lía choca con ellos, pero los rayos de los pies no los pisan.
+	body.collision_layer = 4
+	body.collision_mask = 0
 	var cs := CollisionShape3D.new()
 	var cap := CapsuleShape3D.new()
 	cap.radius = 0.35
@@ -98,10 +103,14 @@ func _process(delta: float) -> void:
 		if walking:
 			var mv := _goal - position
 			yaw = atan2(-mv.x, -mv.z)
+	else:
+		_spd = 0.0
 	if (dist < 6.0 and not walking) or talking:
 		yaw = atan2(-to.x, -to.z)
-	avatar.rotation.y = rotate_toward(avatar.rotation.y, yaw, (6.0 if walking else 4.0) * delta)
-	avatar.speed = WALK_SPEED if walking else 0.0
+	# La cabeza se gira primero hacia Lía y el cuerpo la sigue más despacio (con pasitos).
+	avatar.look_target = player.global_position + Vector3(0, 1.4, 0) if dist < 7.5 else Vector3.INF
+	avatar.rotation.y = rotate_toward(avatar.rotation.y, yaw, (5.0 if walking else 2.2) * delta)
+	avatar.speed = _spd if walking else 0.0
 	if walking:
 		avatar.state = "walk"
 	elif talking:
@@ -127,7 +136,9 @@ func _wander(delta: float) -> bool:
 		_pause = 0.0
 	var mv := _goal - position
 	mv.y = 0.0
-	if mv.length() < 0.25:
+	var dist := mv.length()
+	if dist < 0.08:
+		_spd = 0.0
 		if night:
 			return false
 		_pause -= delta
@@ -135,7 +146,13 @@ func _wander(delta: float) -> bool:
 			_pause = randf_range(4.0, 12.0)
 			_goal = _pick_goal()
 		return false
-	var step := mv.normalized() * minf(WALK_SPEED * delta, mv.length())
+	# Primero se gira hacia donde va y luego echa a andar; al llegar, frena.
+	var face_err := absf(angle_difference(avatar.rotation.y, atan2(-mv.x, -mv.z)))
+	var want := minf(WALK_SPEED, dist * 1.4 + 0.15)
+	if face_err > 0.9:
+		want *= 0.15
+	_spd = move_toward(_spd, want, (2.2 if want > _spd else 3.5) * delta)
+	var step := mv / dist * minf(_spd * delta, dist)
 	var next := position + step
 	if island:
 		next.y = island.height_at(next.x, next.z)

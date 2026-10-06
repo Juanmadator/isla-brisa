@@ -10,6 +10,7 @@ var places: Places
 var critters: Critters
 var wind_lines: WindLines
 var traffic: Traffic
+var home: Home
 
 
 func build() -> void:
@@ -45,6 +46,11 @@ func build() -> void:
 	wind_lines.name = "WindLines"
 	wind_lines.island = island
 	add_child(wind_lines)
+	# Casa de Lía por dentro (lejos de la isla). El sol no ilumina su capa.
+	home = Home.new()
+	add_child(home)
+	home.build(sky)
+	sky.sun.light_cull_mask &= ~Home.LAYER
 	var t3 := Time.get_ticks_msec()
 	print("mundo: isla %d ms, terreno %d ms, lugares+flora %d ms" % [t1 - t0, t2 - t1, t3 - t2])
 
@@ -67,6 +73,10 @@ func set_quality(high: bool) -> void:
 		sky.env.ssao_enabled = high
 		sky.env.ssil_enabled = high
 		sky.env.volumetric_fog_enabled = high
+		# Penumbra de las sombras (cuesta más en la GPU).
+		sky.sun.light_angular_distance = 0.6 if high else 0.0
+	if flora:
+		flora.set_grass_detail(high)
 	if terrain:
 		terrain.set_water_quality(high)
 	var vp := get_viewport()

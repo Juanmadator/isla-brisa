@@ -966,25 +966,64 @@ static func cabin(log_color := WOOD) -> Node3D:
 
 static func tent(c: Color) -> Node3D:
 	var root := Node3D.new()
-	# Lona: triángulo con los lados algo hundidos (tela tensada entre palos).
-	var pts := PackedVector2Array([Vector2(-1.7, 0)])
-	for k in range(1, 6):
-		var t := k / 6.0
-		var sag := sin(t * PI) * 0.16
-		pts.append(Vector2(-1.7 + 1.7 * t + sag * 0.6, 2.2 * t - sag))
-	pts.append(Vector2(0, 2.2))
-	for k in range(1, 6):
-		var t := 1.0 - k / 6.0
-		var sag := sin(t * PI) * 0.16
-		pts.append(Vector2(1.7 - 1.7 * t - sag * 0.6, 2.2 * t - sag))
-	pts.append(Vector2(1.7, 0))
-	_prism(root, pts, 3.6, c, Vector3.ZERO)
+	var hw := 1.7
+	var hh := 2.2
+	var hl := 1.8
+	var cloth := MeshKit.surface_mat(c, "cloth", 0.04, 0.6)
+	# Lona: dos paños que se comban entre la cumbrera y el suelo (más en el centro del paño)
+	# y una cumbrera que cede un poco entre los dos palos.
+	var f := func(u: float, v: float) -> Vector3:
+		var z := lerpf(-hl, hl, u)
+		var a := v * 2.0 - 1.0
+		var ridge := hh - 0.07 * sin(u * PI)
+		var sag := 0.13 * sin(absf(a) * PI) * (0.55 + 0.45 * sin(u * PI))
+		var x := a * hw * (1.0 + 0.04 * absf(a))
+		var y := (1.0 - absf(a)) * ridge - sag
+		x -= signf(a) * sag * 0.5
+		# Arrugas suaves que bajan por la lona.
+		y += sin(u * TAU * 4.0 + a * 3.0) * 0.012 * absf(a)
+		return Vector3(x, maxf(y, 0.0), z)
+	_p_mat(root, MeshKit.double_sided(MeshKit.param_surface(f, 18, 22, Vector3(0, 0.8, 0), false)), cloth)
+	# Fondo cerrado: triángulo de tela hundido hacia dentro.
+	var back := func(u: float, v: float) -> Vector3:
+		var a := v * 2.0 - 1.0
+		var y := u * hh * (1.0 - absf(a))
+		var inward := 0.12 * sin(u * PI) * (1.0 - absf(a))
+		return Vector3(a * hw * (1.0 - u), y * (1.0 - 0.0) - 0.0, hl - inward)
+	_p_mat(root, MeshKit.double_sided(MeshKit.param_surface(back, 10, 12, Vector3(0, 0.8, hl - 0.3), false)), cloth)
+	# Puerta: solapas recogidas a los lados (triángulos de tela ladeados) y la sombra de dentro.
+	for sx: float in [-1.0, 1.0]:
+		var flap := func(u: float, v: float) -> Vector3:
+			var y := u * hh * 0.92
+			var x := sx * lerpf(0.0, hw * (1.0 - u) * 0.95, v)
+			var bulge := sin(v * PI) * sin(u * PI) * 0.1
+			return Vector3(x + sx * 0.02, y, -hl - 0.04 - bulge - v * 0.18 * (1.0 - u))
+		var m := _p_mat(root, MeshKit.double_sided(MeshKit.param_surface(flap, 8, 6, Vector3(sx * 0.5, 0.7, -hl), false)), MeshKit.surface_mat(c.darkened(0.08), "cloth", 0.04, 0.6))
+		m.rotation.y = sx * 0.55
+		m.position = Vector3(sx * hw * 0.42, 0, 0.0)
+	var inner := PackedVector2Array([Vector2(-hw * 0.55, 0), Vector2(0, hh * 0.9), Vector2(hw * 0.55, 0)])
+	_prism(root, inner, 0.02, c.darkened(0.6), Vector3(0, 0, -hl + 0.06))
+	# Palos, cumbrera, vientos y estacas.
 	for sz: int in [-1, 1]:
-		_p(root, MeshKit.cylinder(0.04, 0.05, 2.35, 6), WOOD_DARK, Vector3(0, 1.15, sz * 1.82))
-	_p(root, MeshKit.cylinder(0.05, 0.05, 2.4, 6), WOOD_DARK, Vector3(0, 1.2, 1.9), Vector3.ZERO, Vector3.ONE, 0.0)
+		_p(root, MeshKit.cylinder(0.035, 0.045, hh + 0.2, 8), WOOD_DARK, Vector3(0, (hh + 0.2) * 0.5, sz * (hl + 0.05)))
+		for sx: float in [-1.0, 1.0]:
+			var top := Vector3(0, hh + 0.12, sz * (hl + 0.05))
+			var stake := Vector3(sx * 0.5, 0.04, sz * (hl + 1.1))
+			var rope := MeshKit.part(root, MeshKit.cylinder(0.008, 0.008, top.distance_to(stake), 4), _m(Color(0.85, 0.8, 0.65)), (top + stake) * 0.5)
+			rope.basis = Basis(Quaternion(Vector3.UP, (stake - top).normalized()))
+			_p(root, MeshKit.cylinder(0.02, 0.03, 0.22, 6), WOOD_DARK, stake + Vector3(0, 0.05, 0), Vector3(sz * 15.0, 0, 0))
+	for sx: float in [-1.0, 1.0]:
+		for k in 4:
+			_p(root, MeshKit.cylinder(0.015, 0.025, 0.16, 6), WOOD_DARK, Vector3(sx * (hw + 0.06), 0.05, lerpf(-hl * 0.85, hl * 0.85, k / 3.0)))
+	_p(root, MeshKit.cylinder(0.04, 0.04, hl * 2.0 + 0.2, 8), WOOD_DARK, Vector3(0, hh + 0.02, 0), Vector3(90, 0, 0), Vector3.ONE, 0.0)
 	var b := body(root)
 	box_col(b, Vector3(3.0, 1.6, 3.4), Vector3(0, 0.8, 0))
 	return root
+
+
+## Como `_p` pero con un material ya hecho.
+static func _p_mat(parent: Node3D, mesh: Mesh, m: Material, pos := Vector3.ZERO) -> MeshInstance3D:
+	return MeshKit.part(parent, mesh, m, pos)
 
 
 static func campfire() -> Dictionary:

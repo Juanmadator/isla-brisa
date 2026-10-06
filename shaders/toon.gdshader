@@ -27,6 +27,9 @@ uniform int surface = 0;
 uniform float surface_scale = 1.0;
 uniform float bump_strength = 1.0;
 uniform float edge_highlight = 0.0;
+// Mallas con esqueleto: la posición de reposo viene en CUSTOM0, así el dibujo de la tela y el
+// ruido van pegados a la ropa aunque se doblen los codos y las rodillas.
+uniform bool rest_from_custom = false;
 
 global uniform vec2 wind_dir;
 global uniform float night_amount;
@@ -48,6 +51,10 @@ void vertex() {
 	local_pos = VERTEX * length(MODEL_MATRIX[0].xyz) + offs;
 	obj_n = NORMAL;
 	obj_v = VERTEX * length(MODEL_MATRIX[0].xyz);
+	if (rest_from_custom) {
+		local_pos = CUSTOM0.xyz;
+		obj_v = CUSTOM0.xyz - vec3(CUSTOM0.w, 0.0, 0.0);
+	}
 	v_cloud = cloud_mask((MODEL_MATRIX * vec4(VERTEX, 1.0)).xyz);
 	if (sway > 0.0) {
 		vec3 root = (MODEL_MATRIX * vec4(0.0, 0.0, 0.0, 1.0)).xyz;
@@ -83,7 +90,8 @@ vec3 voronoi(vec2 p) {
 }
 
 // Dibujo y relieve del material: devuelve la altura (en metros) y multiplica el color.
-float surface_pattern(vec3 p, vec3 n, inout vec3 c) {
+// `fp`: tamaño del píxel en metros (los detalles más finos que eso se apagan: sin parpadeo).
+float surface_pattern(vec3 p, vec3 n, float fp, inout vec3 c) {
 	vec3 w = pow(abs(n), vec3(4.0));
 	w /= (w.x + w.y + w.z + 1e-4);
 	if (surface == 1) {
@@ -97,7 +105,8 @@ float surface_pattern(vec3 p, vec3 n, inout vec3 c) {
 		return h * 0.0035;
 	}
 	if (surface == 2) {
-		// Piedra: bloques irregulares (celdas deformadas con ruido) con grietas y moteado.
+		// Piedra: bloques irregulares (celdas deformadas con ruido) con grietas, bloques que
+		// sobresalen unos más que otros, manchas de color a dos escalas y líquenes arriba.
 		float s = 1.9;
 		vec3 warp = vec3(vnoise(p.yz * 1.7), vnoise(p.xz * 1.7 + 3.0), vnoise(p.xy * 1.7 + 6.0)) - 0.5;
 		vec3 pw = p + warp * 0.35;
@@ -106,11 +115,19 @@ float surface_pattern(vec3 p, vec3 n, inout vec3 c) {
 		vec3 d = voronoi(pw.xy * s + 13.0);
 		float edge = a.y * w.x + b.y * w.y + d.y * w.z;
 		float tone = a.z * w.x + b.z * w.y + d.z * w.z;
-		// Grietas de grosor variable: unas marcadas y otras casi borradas.
-		float crack = (1.0 - smoothstep(0.0, 0.07, edge)) * mix(0.35, 1.0, vnoise(pw.xy * 3.0 + pw.z));
+		// Grietas de grosor variable (con el ancho del píxel, para que no salgan punteadas).
+		float aa = fp * s * 1.5;
+		float crack = (1.0 - smoothstep(0.0, 0.08 + aa, edge)) * mix(0.45, 1.0, vnoise(pw.xy * 3.0 + pw.z));
 		float speck = vnoise(p.xy * 23.0 + p.z * 11.0) * w.z + vnoise(p.zy * 23.0) * w.x + vnoise(p.xz * 23.0) * w.y;
-		c *= mix(0.84, 1.07, tone) * (1.0 - crack * 0.3) * mix(0.9, 1.06, speck);
-		return (1.0 - crack) * 0.012 + speck * 0.002;
+		speck = mix(speck, 0.5, smoothstep(0.004, 0.012, fp));
+		float mottle = vnoise(p.xy * 0.45 + p.z * 0.3) * w.z + vnoise(p.zy * 0.45 + 2.0) * w.x + vnoise(p.xz * 0.45 + 4.0) * w.y;
+		float mottle2 = vnoise(p.xy * 2.1 + p.z) * w.z + vnoise(p.zy * 2.1 + 5.0) * w.x + vnoise(p.xz * 2.1 + 8.0) * w.y;
+		c *= mix(0.82, 1.08, tone) * (1.0 - crack * 0.42) * mix(0.9, 1.06, speck);
+		c *= mix(0.86, 1.08, mottle) * mix(0.94, 1.04, mottle2);
+		// Líquenes y musgo: en lo que mira hacia arriba, a manchas.
+		float lichen = smoothstep(0.25, 0.7, n.y) * smoothstep(0.55, 0.7, mottle2 * 0.6 + mottle * 0.4);
+		c = mix(c, c * vec3(0.84, 0.95, 0.62), lichen * 0.7);
+		return (1.0 - crack) * 0.016 + (tone - 0.5) * 0.012 + speck * 0.002 + mottle2 * 0.008;
 	}
 	if (surface == 3) {
 		// Enlucido: manchas suaves y estuco fino.
@@ -149,18 +166,20 @@ float surface_pattern(vec3 p, vec3 n, inout vec3 c) {
 		float ang = atan(obj_v.z, obj_v.x);
 		float folds = sin(ang * 7.0 + vnoise(vec2(ang * 2.0, obj_v.y * 6.0)) * 3.0) * 0.5 + 0.5;
 		float weave = (sin(p.x * 420.0) * sin(p.y * 420.0) + sin(p.z * 420.0) * sin(p.y * 420.0)) * 0.25 + 0.5;
+		weave = mix(weave, 0.5, smoothstep(0.0015, 0.004, fp));
 		c *= mix(0.9, 1.04, folds) * mix(0.97, 1.02, weave);
-		return folds * 0.006 + weave * 0.0006;
+		return (folds * 0.006 + weave * 0.0006) * (1.0 - smoothstep(0.004, 0.012, fp));
 	}
 	if (surface == 8) {
 		// Pelo: mechones que bajan desde la coronilla y un brillo en anillo.
 		vec3 d = normalize(obj_v + vec3(0.0, -0.02, 0.0));
 		float ang = atan(d.z, d.x);
-		float strands = vnoise(vec2(ang * 22.0, d.y * 3.0)) * 0.6 + vnoise(vec2(ang * 60.0, d.y * 6.0)) * 0.4;
+		float fine = mix(vnoise(vec2(ang * 60.0, d.y * 6.0)), 0.5, smoothstep(0.003, 0.008, fp));
+		float strands = vnoise(vec2(ang * 22.0, d.y * 3.0)) * 0.6 + fine * 0.4;
 		float ring = smoothstep(0.2, 0.45, d.y) * (1.0 - smoothstep(0.55, 0.8, d.y));
 		c *= mix(0.8, 1.06, strands);
 		c *= 1.0 + ring * 0.22 * smoothstep(0.45, 0.75, strands);
-		return strands * 0.004;
+		return strands * 0.004 * (1.0 - smoothstep(0.003, 0.01, fp));
 	}
 	if (surface == 6) {
 		// Paja: haces que bajan por la pendiente, en capas que se solapan.
@@ -192,7 +211,8 @@ void fragment() {
 		c *= 1.0 + smoothstep(2.5, 12.0, curv) * edge_highlight;
 	}
 	if (surface > 0) {
-		float h = surface_pattern(local_pos * surface_scale, normalize(obj_n), c) * bump_strength;
+		float fp = length(fwidth(local_pos * surface_scale));
+		float h = surface_pattern(local_pos * surface_scale, normalize(obj_n), fp, c) * bump_strength;
 		// Relieve: se apaga con la distancia para que no parpadee.
 		h *= 1.0 - smoothstep(14.0, 40.0, -VERTEX.z);
 		vec3 dpdx = dFdx(VERTEX);

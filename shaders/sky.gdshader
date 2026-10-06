@@ -12,6 +12,9 @@ uniform vec3 sun_vec = vec3(0.3, 0.8, 0.3);
 uniform float night = 0.0;
 uniform float cloud_time = 0.0;
 uniform float cloud_cover = 0.5;
+// Color del suelo para la luz ambiental (solo en el cubemap de radiancia): lo que mira hacia
+// abajo recibe el rebote verdoso de la hierba en vez del azul del cielo.
+uniform vec3 ground_color : source_color = vec3(0.32, 0.4, 0.26);
 
 #include "res://shaders/noise.gdshaderinc"
 #include "res://shaders/sky_common.gdshaderinc"
@@ -78,6 +81,9 @@ void sky() {
 			float fade = smoothstep(0.0, 0.12, y);
 			col = mix(col, cc, cloud * fade * 0.96);
 		}
+	}
+	if (AT_CUBEMAP_PASS) {
+		col = mix(col, ground_color, smoothstep(0.02, -0.25, y));
 	}
 	COLOR = col;
 }

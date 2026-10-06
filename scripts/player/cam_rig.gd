@@ -18,6 +18,7 @@ var shake := 0.0
 var _idle_look := 10.0
 var _follow := Vector3.ZERO
 var _fov := 68.0
+var _lead := Vector3.ZERO
 
 
 func _ready() -> void:
@@ -72,9 +73,20 @@ func _process(dt: float) -> void:
 	var head := 1.45
 	if st == "swim":
 		head = 1.1
-	var want := tp + Vector3(0, head, 0)
-	var k := 1.0 - exp(-16.0 * dt)
-	var ky := 1.0 - exp(-(9.0 if st == "ground" else 14.0) * dt)
+	# Un poco por delante en la dirección de la carrera (se ve más de lo que viene).
+	var lead := Vector3(target.velocity.x, 0, target.velocity.z) * 0.1
+	if st == "glide":
+		lead *= 0.6
+	_lead = _lead.lerp(lead, 1.0 - exp(-3.0 * dt))
+	var want := tp + Vector3(0, head, 0) + _lead
+	var k := 1.0 - exp(-12.0 * dt)
+	# En vertical, los saltos pequeños apenas mueven la cámara; las caídas largas sí.
+	var ky_rate := 9.0
+	if st == "air":
+		ky_rate = 2.5 if absf(want.y - _follow.y) < 2.2 else 8.0
+	elif st in ["climb", "glide", "mantle"]:
+		ky_rate = 7.0
+	var ky := 1.0 - exp(-ky_rate * dt)
 	_follow.x = lerpf(_follow.x, want.x, k)
 	_follow.z = lerpf(_follow.z, want.z, k)
 	_follow.y = lerpf(_follow.y, want.y, ky)
