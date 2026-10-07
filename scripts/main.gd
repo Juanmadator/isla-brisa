@@ -35,7 +35,7 @@ func _ready() -> void:
 		if tool[0] in args:
 			add_child(load(tool[1]).new())
 			return
-	if "--ib-test" in args or "--ib-capture" in args or "--ib-items" in args or "--ib-trailer" in args:
+	if "--ib-test" in args or "--ib-capture" in args or "--ib-items" in args or "--ib-trailer" in args or "--ib-perf" in args:
 		SaveGame.persist = false
 		SaveGame.load_game()
 	SaveGame.apply_settings()
@@ -54,6 +54,11 @@ func _ready() -> void:
 		var tr: Node = load("res://tools/trailer.gd").new()
 		tr.main = self
 		add_child(tr)
+		return
+	if "--ib-perf" in args:
+		var pf: Node = load("res://tools/perf.gd").new()
+		pf.main = self
+		add_child(pf)
 		return
 	if "--ib-capture" in args:
 		var c: Node = load("res://scripts/tests/capture.gd").new()

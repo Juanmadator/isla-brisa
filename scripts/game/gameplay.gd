@@ -1253,6 +1253,9 @@ func race_active() -> bool:
 
 # --- Bucle --------------------------------------------------------------------------------------
 
+var _lamps_on = null
+
+
 func _process(dt: float) -> void:
 	if player == null:
 		return
@@ -1265,11 +1268,14 @@ func _process(dt: float) -> void:
 		if not is_instance_valid(p["node"]):
 			pickups.remove_at(i)
 			continue
-		var node: Node3D = p["node"]
 		var base: Vector3 = p["pos"]
-		node.position.y = base.y + sin(_t * 2.0 + p["phase"]) * 0.12
-		node.rotation.y += dt * (2.0 if p["kind"] != "kite" else 0.6)
-		if (pp + Vector3(0, 0.8, 0)).distance_to(base) < p["radius"] and not locked:
+		var d2 := (pp + Vector3(0, 0.8, 0)).distance_squared_to(base)
+		# Solo se animan los cercanos: mover cientos de nodos lejanos cada fotograma cuesta CPU.
+		if d2 < 80.0 * 80.0:
+			var node: Node3D = p["node"]
+			node.position.y = base.y + sin(_t * 2.0 + p["phase"]) * 0.12
+			node.rotation.y += dt * (2.0 if p["kind"] != "kite" else 0.6)
+		if d2 < p["radius"] * p["radius"] and not locked:
 			pickups.remove_at(i)
 			_collect(p)
 	_meow_t -= dt
@@ -1284,7 +1290,7 @@ func _process(dt: float) -> void:
 						voice.stream = load(path)
 						voice.volume_db = linear_to_db(maxf(float(SaveGame.setting("sfx")), 0.001)) - 2.0
 						voice.play()
-			var tail := n.get_node_or_null("Tail") as Node3D
+			var tail := n.get_node_or_null("Tail") as Node3D if n.position.distance_squared_to(pp) < 3600.0 else null
 			if tail:
 				tail.rotation.z = sin(_t * 4.0 + n.position.x) * 0.5
 	if _meow_t <= 0.0:
@@ -1411,12 +1417,16 @@ func _update_world_life(dt: float) -> void:
 	for id in places.beacons:
 		(places.beacons[id]["vane"] as Node3D).rotation.y += dt * vane_speed * (1.0 if SaveGame.flag("lit_" + id) else 0.1)
 	var night := world.sky.night
-	for lamp in places.lamps:
-		var glass: MeshInstance3D = lamp["glass"]
-		var on := night > 0.4
-		glass.material_override = lamp["on"] if on else lamp["off"]
-		(lamp["light"] as OmniLight3D).visible = on
+	var lamps_on := night > 0.4
+	if lamps_on != _lamps_on:
+		# Solo al cambiar: reasignar el material cada fotograma obliga a rehacer la instancia.
+		_lamps_on = lamps_on
+		for lamp in places.lamps:
+			(lamp["glass"] as MeshInstance3D).material_override = lamp["on"] if lamps_on else lamp["off"]
+			(lamp["light"] as OmniLight3D).visible = lamps_on
 	for bn in places.buntings:
+		if (bn as Node3D).global_position.distance_squared_to(player.global_position) > 150.0 * 150.0:
+			continue
 		var k := 0
 		for f in (bn as Node3D).get_children():
 			(f as Node3D).rotation.x = sin(_t * (2.0 + wind * 4.0) + k * 0.7) * (0.12 + wind * 0.45)
