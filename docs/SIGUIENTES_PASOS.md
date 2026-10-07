@@ -260,7 +260,7 @@ El proyecto ya usa **Jolt Physics**.
   - Movimiento con inercia y cámara mejorada.
   - Hierba, hojas, roca, agua y tienda nuevas.
   - Marchas de los animales y mascotas, y pasos con huellas.
-- **Ejecutable:** `dist/windows/IslaBrisa.exe` regenerado el 6 de octubre de 2026; pasa `--ib-test` (403 comprobaciones).
+- **Ejecutable:** `dist/windows/IslaBrisa.exe` regenerado el 7 de octubre de 2026 (con las mejoras de rendimiento); pasa `--ib-test` (403 comprobaciones).
 - **Herramientas nuevas:**
   - `--ib-clip`: clips de juego con piloto automático.
   - `--ib-look --only=bench`: rendimiento.
