@@ -175,7 +175,7 @@ static func _sea_mesh(size: float, cells: int, reach: float) -> ArrayMesh:
 	return mesh
 
 
-## Reflejos en pantalla del agua: solo en calidad alta (en baja, el agua refleja el cielo).
-func set_water_quality(high: bool) -> void:
+## Reflejos en pantalla del agua: `k` = fracción de los pasos (0 = solo refleja el cielo).
+func set_water_quality(k: float) -> void:
 	for wm in water_mats:
-		(wm[0] as ShaderMaterial).set_shader_parameter("ssr_steps", wm[1] if high else 0)
+		(wm[0] as ShaderMaterial).set_shader_parameter("ssr_steps", int(wm[1] * k))

@@ -83,7 +83,7 @@ func _build() -> void:
 	rig.sensitivity = 0.0032 * float(SaveGame.setting("sensitivity"))
 	rig.invert_y = bool(SaveGame.setting("invert_y"))
 	world.sky.sun.shadow_enabled = bool(SaveGame.setting("shadows"))
-	world.set_quality(bool(SaveGame.setting("high_quality")))
+	world.set_quality(int(SaveGame.setting("quality")))
 	gameplay = Gameplay.new()
 	gameplay.name = "Gameplay"
 	gameplay.process_mode = Node.PROCESS_MODE_PAUSABLE

@@ -47,7 +47,14 @@ func default_data() -> Dictionary:
 			"invert_y": false,
 			"fullscreen": false,
 			"shadows": true,
-			"high_quality": true,
+			# 0 Baja, 1 Media, 2 Alta, 3 Ultra.
+			"quality": 2,
+			# 0 sin vsync, 1 vsync, 2 vsync adaptativo.
+			"vsync": 1,
+			# Límite de FPS (0 = sin límite).
+			"max_fps": 0,
+			# Resolución 3D (1 = nativa; menos, reescalada con FSR).
+			"render_scale": 1.0,
 		},
 	}
 
@@ -60,6 +67,11 @@ func load_game() -> void:
 			var parsed = JSON.parse_string(f.get_as_text())
 			if parsed is Dictionary:
 				_merge(data, parsed)
+				# Ajuste antiguo de dos estados: "alta calidad" desactivada = calidad Baja.
+				var st: Dictionary = parsed["settings"] if parsed.get("settings") is Dictionary else {}
+				if st.has("high_quality") and not st.has("quality"):
+					data["settings"]["quality"] = 2 if bool(st["high_quality"]) else 0
+				data["settings"].erase("high_quality")
 	# Partidas de versiones anteriores: añade lo que viene de serie y las ranuras nuevas.
 	var def := default_data()
 	for id in def["owned"]:
@@ -272,6 +284,14 @@ func set_setting(k: String, v) -> void:
 func apply_settings() -> void:
 	if DisplayServer.get_name() == "headless":
 		return
+	Engine.max_fps = int(setting("max_fps"))
+	var vs: DisplayServer.VSyncMode = [DisplayServer.VSYNC_DISABLED, DisplayServer.VSYNC_ENABLED, DisplayServer.VSYNC_ADAPTIVE][clampi(int(setting("vsync")), 0, 2)]
+	if DisplayServer.window_get_vsync_mode() != vs:
+		DisplayServer.window_set_vsync_mode(vs)
+	var root := get_tree().root
+	var rs := clampf(float(setting("render_scale")), 0.5, 1.0)
+	root.scaling_3d_mode = Viewport.SCALING_3D_MODE_BILINEAR if rs >= 0.999 else Viewport.SCALING_3D_MODE_FSR
+	root.scaling_3d_scale = rs
 	var fs: bool = setting("fullscreen")
 	var want := DisplayServer.WINDOW_MODE_FULLSCREEN if fs else DisplayServer.WINDOW_MODE_WINDOWED
 	if DisplayServer.window_get_mode() != want and not (not fs and DisplayServer.window_get_mode() == DisplayServer.WINDOW_MODE_MAXIMIZED):

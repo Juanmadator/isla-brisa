@@ -63,6 +63,7 @@ func build(isl: Island) -> void:
 	farm.name = "Farm"
 	add_child(farm)
 	farm.build(island, self)
+	MeshKit.auto_ranges(self)
 
 
 func anchor(id: String) -> Vector3:

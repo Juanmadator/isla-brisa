@@ -14,6 +14,7 @@ static var _mesh_cache := {}
 static func clear_cache() -> void:
 	_mat_cache.clear()
 	_mesh_cache.clear()
+	_lod_cache.clear()
 	_toon_shader = null
 
 
@@ -760,3 +761,70 @@ static func part(parent: Node3D, mesh: Mesh, material: Material, pos := Vector3.
 		mi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
 	parent.add_child(mi)
 	return mi
+
+
+# --- Detalle por distancia ---------------------------------------------------
+
+## Pone a cada pieza de `root` un rango de visibilidad según su tamaño: deja de dibujarse
+## cuando ocuparía unos pocos píxeles (`px_per_m` = 1 / tamaño del píxel a 1 m). Las piezas
+## diminutas tampoco proyectan sombra. No toca las que ya tienen un rango propio.
+static func auto_ranges(root: Node, px_per_m := 1300.0, min_px := 6.0) -> void:
+	var stack: Array[Node] = [root]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		stack.append_array(n.get_children())
+		if not (n is MeshInstance3D or n is MultiMeshInstance3D):
+			continue
+		var g := n as GeometryInstance3D
+		if n is MeshInstance3D and (n as MeshInstance3D).get_script() == null:
+			(n as MeshInstance3D).mesh = with_lods((n as MeshInstance3D).mesh)
+		if g.visibility_range_end > 0.0 or not g.is_inside_tree():
+			continue
+		var aabb := g.get_aabb()
+		if n is MultiMeshInstance3D:
+			continue
+		var s := g.global_basis.get_scale()
+		var size := (aabb.size * s.abs()).length()
+		if size <= 0.0:
+			continue
+		var reach := size * px_per_m / min_px
+		if reach < 400.0:
+			g.visibility_range_end = maxf(reach, 20.0)
+			g.visibility_range_end_margin = maxf(reach * 0.08, 2.0)
+		if size < 0.35 and g.cast_shadow == GeometryInstance3D.SHADOW_CASTING_SETTING_ON:
+			g.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
+
+
+static var _lod_cache := {}
+
+## La misma malla con niveles de detalle (LOD) generados: Godot dibuja la versión simplificada
+## cuando la pieza se ve pequeña, también en el pase de sombras. Se cachea por malla.
+static func with_lods(mesh: Mesh, min_tris := 160) -> Mesh:
+	if not (mesh is ArrayMesh) or OS.has_environment("IB_NOLOD"):
+		return mesh
+	var key := mesh.get_instance_id()
+	if _lod_cache.has(key):
+		return _lod_cache[key]
+	var am := mesh as ArrayMesh
+	var out: Mesh = am
+	var im := ImporterMesh.new()
+	var tris := 0
+	var ok := am.get_blend_shape_count() == 0
+	for s in am.get_surface_count():
+		if not ok or am.surface_get_primitive_type(s) != Mesh.PRIMITIVE_TRIANGLES:
+			ok = false
+			break
+		var arrays := am.surface_get_arrays(s)
+		var idx = arrays[Mesh.ARRAY_INDEX]
+		if idx == null or (idx as PackedInt32Array).is_empty():
+			var st := SurfaceTool.new()
+			st.create_from(am, s)
+			st.index()
+			arrays = st.commit_to_arrays()
+		tris += (arrays[Mesh.ARRAY_INDEX] as PackedInt32Array).size() / 3
+		im.add_surface(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, am.surface_get_material(s), am.surface_get_name(s))
+	if ok and tris >= min_tris:
+		im.generate_lods(25.0, 60.0, [])
+		out = im.get_mesh()
+	_lod_cache[key] = out
+	return out

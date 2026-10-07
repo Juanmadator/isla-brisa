@@ -75,12 +75,12 @@ static func _canopy_lobes(variant: int) -> Array:
 	return lobes
 
 
-static func broadleaf_canopy(variant: int) -> ArrayMesh:
+static func broadleaf_canopy(variant: int, scale := 1.0, segs := 11) -> ArrayMesh:
 	var parts := []
 	var lobes := _canopy_lobes(variant)
 	for i in lobes.size():
 		var l: Array = lobes[i]
-		parts.append([MeshKit.blob(l[1], l[2], 0.12, variant + i, 11), Transform3D(Basis(), l[0])])
+		parts.append([MeshKit.blob(l[1] * scale, l[2], 0.12, variant + i, segs), Transform3D(Basis(), l[0])])
 	return _combine(parts)
 
 
@@ -227,8 +227,50 @@ static func pine_mesh() -> ArrayMesh:
 	return _combine(parts)
 
 
-## `material` null = usa los materiales de cada superficie de la malla.
-func _multimesh(mesh: Mesh, material: Material, xforms: Array, tints: Array, shadows := true) -> MultiMeshInstance3D:
+## Lado de las zonas en que se trocea cada MultiMesh de la isla: así la cámara (y cada cascada
+## de sombra) descarta lo que no ve, en vez de dibujar todos los árboles de la isla siempre.
+const TILE := 48.0
+## Distancia a partir de la cual las copas de hojas se cambian por la copa sencilla.
+const TREE_LOD := 110.0
+## Hasta dónde las tarjetas de hojas proyectan su propia sombra (recortada hoja a hoja).
+const TREE_SHADOW := 45.0
+
+
+## `material` null = usa los materiales de cada superficie de la malla. Se trocea por zonas;
+## `range_begin`/`range_end` (0 = sin límite) se miden desde el centro de cada zona.
+func _multimesh(mesh: Mesh, material: Material, xforms: Array, tints: Array, shadows := true, range_begin := 0.0, range_end := 0.0, only_shadow := false) -> void:
+	if not _has_cards(mesh):
+		mesh = MeshKit.with_lods(mesh)
+	var tiles := {}
+	for i in xforms.size():
+		var o: Vector3 = (xforms[i] as Transform3D).origin
+		var k := Vector2i(floori(o.x / TILE), floori(o.z / TILE))
+		if not tiles.has(k):
+			tiles[k] = [[], []]
+		tiles[k][0].append(xforms[i])
+		tiles[k][1].append(tints[i] if i < tints.size() else Color.WHITE)
+	for k in tiles:
+		var mmi := _multimesh_one(mesh, material, tiles[k][0], tiles[k][1], shadows)
+		if only_shadow:
+			mmi.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY
+		# Sin margen (histéresis): con margen, tras un salto de cámara una zona en la franja de
+		# relevo entre dos bandas no cumple ninguna de las dos y se queda sin dibujar.
+		if range_begin > 0.0:
+			mmi.visibility_range_begin = range_begin
+		if range_end > 0.0:
+			mmi.visibility_range_end = range_end
+
+
+## Las tarjetas de hojas son cuatro vértices en el mismo punto: no admiten LOD por simplificación.
+static func _has_cards(mesh: Mesh) -> bool:
+	for si in mesh.get_surface_count():
+		var m := mesh.surface_get_material(si) as ShaderMaterial
+		if m and m.shader and m.shader.resource_path.ends_with("foliage.gdshader"):
+			return true
+	return false
+
+
+func _multimesh_one(mesh: Mesh, material: Material, xforms: Array, tints: Array, shadows: bool) -> MultiMeshInstance3D:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_3D
 	mm.use_custom_data = true
@@ -236,7 +278,7 @@ func _multimesh(mesh: Mesh, material: Material, xforms: Array, tints: Array, sha
 	mm.instance_count = xforms.size()
 	for i in xforms.size():
 		mm.set_instance_transform(i, xforms[i])
-		mm.set_instance_custom_data(i, tints[i] if i < tints.size() else Color.WHITE)
+		mm.set_instance_custom_data(i, tints[i])
 	var mmi := MultiMeshInstance3D.new()
 	mmi.multimesh = mm
 	if material:
@@ -391,13 +433,29 @@ func _scatter_trees() -> void:
 				cs.position = pos + Vector3(0, 3.0, 0)
 				body.add_child(cs)
 		x += cell
+	# Cerca, copas de tarjetas de hojas; lejos, la copa sencilla de bultos (mucho más barata,
+	# también en las sombras).
+	var far_mat := _tinted(Color(0.86, 0.9, 0.82), 1.0)
+	far_mat.set_shader_parameter("detail", 0.0)
 	for v in 3:
-		_multimesh(canopies[v], null, canopy_x[v], canopy_t[v])
+		# Las tarjetas proyectan su sombra de hojas solo cerca (su shader es caro en cada cascada);
+		# más allá, la sombra la da una copa de bultos algo más pequeña, solo sombra.
+		_multimesh(canopies[v], null, canopy_x[v], canopy_t[v], true, 0.0, TREE_SHADOW)
+		_multimesh(canopies[v], null, canopy_x[v], canopy_t[v], false, TREE_SHADOW, TREE_LOD)
+		_multimesh(broadleaf_canopy(v, 0.86, 7), far_mat, canopy_x[v], [], true, TREE_SHADOW, TREE_LOD, true)
+		_multimesh(broadleaf_canopy(v), far_mat, canopy_x[v], canopy_t[v], true, TREE_LOD)
 	_multimesh(trunk_mesh(5.0, 0.32), _tinted(Color(0.55, 0.38, 0.26), 0.3, "bark"), trunk_x, [])
-	_multimesh(_leafy(pine_leafy_mesh(), 0.6, true), null, pine_x, pine_t)
-	_multimesh(trunk_mesh(2.0, 0.22), _tinted(Color(0.5, 0.36, 0.26), 0.0, "bark"), pine_trunk_x, [])
+	var pine_leafy := _leafy(pine_leafy_mesh(), 0.6, true)
+	var pine_far := _tinted(Color(0.7, 0.82, 0.6), 0.6)
+	pine_far.set_shader_parameter("detail", 0.0)
+	_multimesh(pine_leafy, null, pine_x, pine_t, true, 0.0, TREE_SHADOW)
+	_multimesh(pine_leafy, null, pine_x, pine_t, false, TREE_SHADOW, TREE_LOD)
+	_multimesh(pine_mesh(), pine_far, pine_x, [], true, TREE_SHADOW, TREE_LOD, true)
+	_multimesh(pine_mesh(), pine_far, pine_x, pine_t, true, TREE_LOD)
+	_multimesh(trunk_mesh(2.0, 0.22), _tinted(Color(0.5, 0.36, 0.26), 0.0, "bark"), pine_trunk_x, [], true, 0.0, 260.0)
 	var bush := _leafy(leafy_mesh([[Vector3(0, 0.1, 0), 1.0, 0.8], [Vector3(0.55, -0.05, 0.2), 0.6, 0.8], [Vector3(-0.45, 0.0, -0.3), 0.65, 0.8]], 0.45, 3.2, 7), 0.4)
-	_multimesh(bush, null, bush_x, bush_t)
+	_multimesh(bush, null, bush_x, bush_t, true, 0.0, TREE_SHADOW)
+	_multimesh(bush, null, bush_x, bush_t, false, TREE_SHADOW, 150.0)
 	if not palm_x.is_empty():
 		_multimesh(palm_trunk_mesh(), _tinted(Color(0.72, 0.55, 0.36), 0.5, "bark"), palm_x, [])
 		_multimesh(palm_fronds_mesh(), _tinted(Color(1, 1, 1), 1.2), palm_x, palm_t)
@@ -574,13 +632,13 @@ func _scatter_lake_plants() -> void:
 				flower_tints.append(Color(1.0, 0.93, 0.96) if rng.randf() < 0.6 else Color(1.0, 0.7, 0.82))
 	var pad_mat := _tinted(Color(1, 1, 1), 0.0)
 	pad_mat.set_shader_parameter("rim_amount", 0.0)
-	_multimesh(lily_pad_mesh(), pad_mat, pads, pad_tints, false)
+	_multimesh(lily_pad_mesh(), pad_mat, pads, pad_tints, false, 0.0, 160.0)
 	var fl := lily_flower_meshes()
-	_multimesh(fl[0], _tinted(Color(1, 1, 1), 0.0), flowers, flower_tints, false)
+	_multimesh(fl[0], _tinted(Color(1, 1, 1), 0.0), flowers, flower_tints, false, 0.0, 120.0)
 	var yellow := []
 	for t: Transform3D in flowers:
 		yellow.append(t.translated(Vector3(0, 0.05, 0)))
-	_multimesh(fl[1], MeshKit.mat(Color(1.0, 0.82, 0.25), 0.0, 0.25, Color(1.0, 0.75, 0.2)), yellow, [], false)
+	_multimesh(fl[1], MeshKit.mat(Color(1.0, 0.82, 0.25), 0.0, 0.25, Color(1.0, 0.75, 0.2)), yellow, [], false, 0.0, 120.0)
 	# Juncos y eneas donde el agua es muy poco profunda o justo en la orilla.
 	var reeds := [reed_clump_meshes(1), reed_clump_meshes(2)]
 	var rx := [[], []]
@@ -617,11 +675,11 @@ func _scatter_lake_plants() -> void:
 	reed_mat.set_shader_parameter("rim_amount", 0.0)
 	var head_mat := _tinted(Color(0.42, 0.27, 0.16), 3.0)
 	for v in 2:
-		_multimesh(reeds[v][0], reed_mat, rx[v], rt[v], true)
+		_multimesh(reeds[v][0], reed_mat, rx[v], rt[v], true, 0.0, 160.0)
 		var ht := []
 		for _i in hx[v].size():
 			ht.append(Color(1, 1, 1))
-		_multimesh(reeds[v][1], head_mat, hx[v], ht, true)
+		_multimesh(reeds[v][1], head_mat, hx[v], ht, true, 0.0, 120.0)
 
 
 # --- Hierba por trozos ---------------------------------------------------------
@@ -725,9 +783,8 @@ func _process(_delta: float) -> void:
 			_grass_chunks.erase(key)
 
 
-## Calidad de la hierba: con `high`, briznas finas hasta GRASS_NEAR; si no, solo muy cerca.
-func set_grass_detail(high: bool) -> void:
-	var want := GRASS_NEAR if high else 14.0
+## Hasta dónde se ven las briznas finas (según la calidad).
+func set_grass_near(want: float) -> void:
 	if is_equal_approx(want, grass_near):
 		return
 	grass_near = want

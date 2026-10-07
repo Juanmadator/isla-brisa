@@ -199,22 +199,29 @@ void fragment() {
 		vec3 vc = COLOR.rgb;
 		c *= mix(pow((vc + 0.055) / 1.055, vec3(2.4)), vc / 12.92, lessThan(vc, vec3(0.04045)));
 	}
-	if (detail > 0.0) {
+	// Lo fino se calcula solo cerca y se funde con el color base a lo lejos (ahorra mucho:
+	// el dibujo de la piedra son tres Vóronoi por píxel).
+	float dist = -VERTEX.z;
+	float detail_k = detail * (1.0 - smoothstep(90.0, 140.0, dist));
+	if (detail_k > 0.0) {
 		vec3 q = local_pos * detail_scale;
 		float n = (vnoise(q.xy) + vnoise(q.yz + 5.3) + vnoise(q.xz + 9.1)) / 3.0;
 		float n2 = (vnoise(q.xy * 3.7) + vnoise(q.zy * 3.7 + 2.0)) * 0.5;
-		c *= 1.0 + ((n - 0.5) * 1.6 + (n2 - 0.5) * 0.6) * detail;
+		c *= 1.0 + ((n - 0.5) * 1.6 + (n2 - 0.5) * 0.6) * detail_k;
 	}
 	if (edge_highlight > 0.0) {
 		// Curvatura = cuánto gira la normal por metro (antes del relieve): los biseles se aclaran.
 		float curv = length(fwidth(NORMAL)) / max(length(fwidth(VERTEX)), 1e-4);
 		c *= 1.0 + smoothstep(2.5, 12.0, curv) * edge_highlight;
 	}
-	if (surface > 0) {
+	float pattern_k = 1.0 - smoothstep(45.0, 75.0, dist);
+	if (surface > 0 && pattern_k > 0.0) {
 		float fp = length(fwidth(local_pos * surface_scale));
+		vec3 base = c;
 		float h = surface_pattern(local_pos * surface_scale, normalize(obj_n), fp, c) * bump_strength;
+		c = mix(base * 0.96, c, pattern_k);
 		// Relieve: se apaga con la distancia para que no parpadee.
-		h *= 1.0 - smoothstep(14.0, 40.0, -VERTEX.z);
+		h *= 1.0 - smoothstep(14.0, 40.0, dist);
 		vec3 dpdx = dFdx(VERTEX);
 		vec3 dpdy = dFdy(VERTEX);
 		vec3 r1 = cross(dpdy, NORMAL);

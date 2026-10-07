@@ -445,9 +445,12 @@ func _options_body() -> Control:
 	v.add_child(_check("Sombras", "shadows", func(x: bool) -> void:
 		if main and main.world:
 			main.world.sky.sun.shadow_enabled = x))
-	v.add_child(_check("Gráficos de alta calidad (oclusión ambiental y antialiasing)", "high_quality", func(x: bool) -> void:
+	v.add_child(_choice("Calidad gráfica", "quality", World.QUALITY_NAMES, [0, 1, 2, 3], func(x) -> void:
 		if main and main.world:
-			main.world.set_quality(x)))
+			main.world.set_quality(int(x))))
+	v.add_child(_choice("Resolución 3D", "render_scale", ["50 %", "67 %", "77 %", "85 %", "100 %"], [0.5, 0.67, 0.77, 0.85, 1.0], Callable()))
+	v.add_child(_choice("Sincronización vertical", "vsync", ["No", "Sí", "Adaptativa"], [0, 1, 2], Callable()))
+	v.add_child(_choice("Límite de FPS", "max_fps", ["30", "60", "120", "144", "Sin límite"], [30, 60, 120, 144, 0], Callable()))
 	v.add_child(_check("Pantalla completa", "fullscreen", Callable()))
 	return v
 
@@ -469,6 +472,32 @@ func _slider(text: String, key: String, lo: float, hi: float, cb: Callable) -> C
 		if cb.is_valid():
 			cb.call(x))
 	h.add_child(s)
+	return h
+
+
+## Selector de una lista de valores con flechas a los lados (ratón, teclado o mando).
+func _choice(text: String, key: String, names: Array, values: Array, cb: Callable) -> Control:
+	var h := UiKit.hbox(14)
+	var l := UiKit.label(text, 20)
+	l.custom_minimum_size.x = 260
+	h.add_child(l)
+	var cur := 0
+	var saved = SaveGame.setting(key)
+	for i in values.size():
+		if is_equal_approx(float(values[i]), float(saved)):
+			cur = i
+	var val := UiKit.label(names[cur], 20, UiKit.C_TEXT, 700)
+	val.custom_minimum_size.x = 150
+	val.horizontal_alignment = HORIZONTAL_ALIGNMENT_CENTER
+	var step := func(d: int) -> void:
+		cur = clampi(cur + d, 0, values.size() - 1)
+		val.text = names[cur]
+		SaveGame.set_setting(key, values[cur])
+		if cb.is_valid():
+			cb.call(values[cur])
+	h.add_child(UiKit.button("‹", func() -> void: step.call(-1), 20, 44))
+	h.add_child(val)
+	h.add_child(UiKit.button("›", func() -> void: step.call(1), 20, 44))
 	return h
 
 

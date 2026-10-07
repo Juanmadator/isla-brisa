@@ -5,6 +5,7 @@ extends Node
 var world: World
 var cam: Camera3D
 var only: PackedStringArray = []
+var quality_set := false
 
 
 func _shot(n: String) -> void:
@@ -42,6 +43,9 @@ func _ready() -> void:
 			world.sky.env.tonemap_exposure = float(a.substr(11))
 		if a.begins_with("--white="):
 			world.sky.env.tonemap_white = float(a.substr(8))
+		if a.begins_with("--quality="):   # 0 Baja ... 3 Ultra (el banco usa Alta si no se dice)
+			world.set_quality(int(a.substr(10)))
+			quality_set = true
 		if a.begins_with("--nofx="):   # comparar sin efectos: --nofx=ssil,vol,aerial,ssao
 			var fx := a.substr(7).split(",")
 			var env := world.sky.env
@@ -50,6 +54,18 @@ func _ready() -> void:
 			env.ssao_enabled = env.ssao_enabled and not "ssao" in fx
 			if "aerial" in fx:
 				env.fog_aerial_perspective = 0.0
+			env.glow_enabled = env.glow_enabled and not "glow" in fx
+			if "msaa" in fx:
+				get_viewport().msaa_3d = Viewport.MSAA_DISABLED
+			if "smaa" in fx:
+				get_viewport().screen_space_aa = Viewport.SCREEN_SPACE_AA_DISABLED
+			if "shadow" in fx:
+				world.sky.sun.shadow_enabled = false
+			if "penumbra" in fx:
+				world.sky.sun.light_angular_distance = 0.0
+			if "fsr" in fx:   # al revés: activa FSR 2 al 77 %
+				get_viewport().scaling_3d_mode = Viewport.SCALING_3D_MODE_FSR2
+				get_viewport().scaling_3d_scale = 0.77
 	world.sky.apply()
 	cam = Camera3D.new()
 	cam.fov = 62
@@ -57,7 +73,14 @@ func _ready() -> void:
 	add_child(cam)
 	cam.make_current()
 	var isl := world.island
+	if "tris" in only:
+		_tris()
+		get_tree().quit()
+		return
 	if "bench" in only:
+		if not quality_set:
+			world.set_quality(2)
+		print("bench calidad: ", World.QUALITY_NAMES[world.quality])
 		await _bench()
 		get_tree().quit()
 		return
@@ -116,12 +139,17 @@ func _ready() -> void:
 	get_tree().quit()
 
 
-## Rendimiento: FPS medios (2 s, tras 2 s de calentamiento) en varios puntos de vista.
+## Rendimiento: FPS medios, percentil 99 del tiempo por fotograma, tiempo de CPU/GPU y
+## llamadas de dibujo (3 s, tras 2 s de calentamiento) en varios puntos de vista.
 func _bench() -> void:
 	var v := world.places.anchor("village")
+	var isl := world.island
+	var ru := world.places.anchor("faro_ruins")
 	var views := [["pueblo", v + Vector3(22, 9, 34), v + Vector3(0, 2, 0)],
-		["bosque", world.island.ground(Vector2(-128, 52), 2.4), world.island.ground(Vector2(-180, 12), 3.0)],
-		["pradera", world.island.ground(Vector2(10, 150), 1.6), world.island.ground(Vector2(14, 120), 1.5)],
+		["bosque", isl.ground(Vector2(-128, 52), 2.4), isl.ground(Vector2(-180, 12), 3.0)],
+		["pradera", isl.ground(Vector2(10, 150), 1.6), isl.ground(Vector2(14, 120), 1.5)],
+		["playa", world.places.anchor("spawn") + Vector3(4, 4, 10), v],
+		["ruinas", ru + Vector3(-20, 8, 26), ru + Vector3(0, 6, 0)],
 		["aereo", Vector3(0, 380, 420), Vector3.ZERO]]
 	# Vecinos andando por el pueblo, como en el juego.
 	var holder := Node3D.new()
@@ -130,21 +158,97 @@ func _bench() -> void:
 		var av := Avatar.new()
 		holder.add_child(av)
 		av.build({"hair_style": "short"})
-		av.position = world.island.ground(Vector2(v.x, v.z) + Vector2(i * 1.7 - 10.0, 6.0))
+		av.position = isl.ground(Vector2(v.x, v.z) + Vector2(i * 1.7 - 10.0, 6.0))
 		av.state = "walk" if i % 2 == 0 else "idle"
 		av.speed = 1.3
+	# IB_VIEWS=pueblo,bosque: solo esas vistas. IB_HIDE=flora,grass,places,terrain,sea: ocultar
+	# partes del mundo para medir cuánto cuestan.
+	if OS.has_environment("IB_VIEWS"):
+		var want := OS.get_environment("IB_VIEWS").split(",")
+		views = views.filter(func(w): return w[0] in want)
+	var hide := OS.get_environment("IB_HIDE").split(",", false)
+	for c in world.flora.get_children():
+		if c is GeometryInstance3D and "flora" in hide:
+			c.visible = false
+		elif c.name == "Grass" and "grass" in hide:
+			c.visible = false
+	if "places" in hide:
+		world.places.visible = false
+	for c in world.terrain.get_children():
+		if c is MeshInstance3D and ((c.name in ["Sea", "Lake"] and "sea" in hide) or (not c.name in ["Sea", "Lake"] and "terrain" in hide)):
+			c.visible = false
+	var vp := get_viewport().get_viewport_rid()
+	RenderingServer.viewport_set_measure_render_time(vp, true)
+	var total := 0.0
 	for vw in views:
 		cam.global_position = vw[1]
 		cam.look_at(vw[2])
 		world.set_focus(vw[1])
 		world.flora.warm_up()
 		await get_tree().create_timer(2.0).timeout
+		var times: Array[float] = []
+		var cpu := 0.0
+		var gpu := 0.0
 		var t0 := Time.get_ticks_usec()
-		var f0 := Engine.get_frames_drawn()
-		await get_tree().create_timer(2.0).timeout
-		var fps := (Engine.get_frames_drawn() - f0) / ((Time.get_ticks_usec() - t0) / 1e6)
-		print("bench %s: %.1f fps" % [vw[0], fps])
+		var last := t0
+		while Time.get_ticks_usec() - t0 < 3000000:
+			await get_tree().process_frame
+			var now := Time.get_ticks_usec()
+			times.append((now - last) / 1000.0)
+			last = now
+			cpu += RenderingServer.viewport_get_measured_render_time_cpu(vp) + RenderingServer.get_frame_setup_time_cpu()
+			gpu += RenderingServer.viewport_get_measured_render_time_gpu(vp)
+		var n := times.size()
+		var fps := n / ((last - t0) / 1e6)
+		times.sort()
+		var p99 := times[mini(n - 1, int(n * 0.99))]
+		var draws := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_DRAW_CALLS_IN_FRAME)
+		var prims := RenderingServer.get_rendering_info(RenderingServer.RENDERING_INFO_TOTAL_PRIMITIVES_IN_FRAME)
+		print("bench %-8s %6.1f fps  p99 %5.1f ms  cpu-render %5.2f ms  gpu %5.2f ms  draws %5d  tris %5.2fM" % [vw[0], fps, p99, cpu / n, gpu / n, draws, prims / 1e6])
+		total += fps
+	print("bench media: %.1f fps" % (total / views.size()))
 	holder.queue_free()
+
+
+## Triángulos de toda la escena (sin recortar por cámara), por nodo, con y sin sombra.
+func _tris() -> void:
+	var v := world.places.anchor("village")
+	world.set_focus(v)
+	world.flora.warm_up()
+	var rows := []
+	var stack: Array[Node] = [world]
+	while not stack.is_empty():
+		var n: Node = stack.pop_back()
+		stack.append_array(n.get_children())
+		var mesh: Mesh = null
+		var count := 1
+		if n is MultiMeshInstance3D and (n as MultiMeshInstance3D).multimesh:
+			mesh = n.multimesh.mesh
+			count = n.multimesh.visible_instance_count if n.multimesh.visible_instance_count >= 0 else n.multimesh.instance_count
+		elif n is MeshInstance3D:
+			mesh = n.mesh
+		if mesh == null or not (n as GeometryInstance3D).is_visible_in_tree():
+			continue
+		var t := 0
+		for si in mesh.get_surface_count():
+			var arr := mesh.surface_get_arrays(si)
+			var idx = arr[Mesh.ARRAY_INDEX]
+			t += (idx.size() if idx != null and idx.size() > 0 else (arr[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()) / 3
+		var g := n as GeometryInstance3D
+		rows.append([t * count, str(world.get_path_to(n)).get_slice("/", 0) + "/" + str(n.get_parent().name) + "/" + n.name, count, g.cast_shadow != GeometryInstance3D.SHADOW_CASTING_SETTING_OFF, g.visibility_range_end])
+	rows.sort_custom(func(a, b): return a[0] > b[0])
+	var total := 0
+	var by_top := {}
+	for r in rows:
+		total += r[0]
+		var top: String = (r[1] as String).get_slice("/", 0)
+		by_top[top] = by_top.get(top, 0) + r[0]
+	print("tris total %.2fM en %d nodos" % [total / 1e6, rows.size()])
+	for k in by_top:
+		print("  %-12s %.2fM" % [k, by_top[k] / 1e6])
+	for i in mini(40, rows.size()):
+		var r: Array = rows[i]
+		print("  %8d  x%-5d sombra=%s rango=%.0f  %s" % [r[0], r[2], r[3], r[4], r[1]])
 
 
 ## Lía de cerca y andando/corriendo de verdad (el nodo avanza): una tira de fotogramas
